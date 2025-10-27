@@ -1,9 +1,9 @@
 import streamlit as st
 import pyrebase
-import json
-import os
 
-# Configuración desde Streamlit Secrets
+# ==========================
+# 🔧 CONFIGURACIÓN FIREBASE
+# ==========================
 firebaseConfig = {
     "apiKey": st.secrets["apiKey"],
     "authDomain": st.secrets["authDomain"],
@@ -14,84 +14,72 @@ firebaseConfig = {
     "measurementId": st.secrets["measurementId"]
 }
 
-# Inicializar Firebase
+# Inicializar conexión con Firebase
 firebase = pyrebase.initialize_app(firebaseConfig)
 auth = firebase.auth()
 
-# Interfaz simple de login
-st.title("🔐 Dashboard ISP - Login")
+# ==========================
+# 🎨 INTERFAZ STREAMLIT
+# ==========================
+st.set_page_config(page_title="Dashboard ISP", layout="centered")
 
-choice = st.sidebar.selectbox("Acción", ["Login", "Registrarse"])
+st.title("📊 Dashboard ISP")
+st.markdown("Sistema de métricas e indicadores financieros para ISPs.")
+
+# Sidebar: login / registro
+menu = st.sidebar.selectbox("Acción", ["🔑 Iniciar Sesión", "📝 Crear Cuenta"])
 
 email = st.text_input("Correo electrónico")
 password = st.text_input("Contraseña", type="password")
 
-if choice == "Login":
+# ==========================
+# 🔐 LOGIN
+# ==========================
+if menu == "🔑 Iniciar Sesión":
     if st.button("Ingresar"):
         try:
             user = auth.sign_in_with_email_and_password(email, password)
-            st.success("✅ Login exitoso")
             st.session_state["user"] = email
+            st.success(f"✅ Bienvenido {email}")
         except Exception as e:
-            st.error(f"❌ Error de login: {e}")
+            st.error("❌ Error al iniciar sesión. Verifica los datos.")
 
-elif choice == "Registrarse":
-    if st.button("Crear cuenta"):
+# ==========================
+# 📝 REGISTRO
+# ==========================
+elif menu == "📝 Crear Cuenta":
+    if st.button("Registrarse"):
         try:
             user = auth.create_user_with_email_and_password(email, password)
-            st.success("✅ Cuenta creada correctamente, ahora podés ingresar.")
+            st.success("✅ Usuario creado correctamente. Ahora podés ingresar.")
         except Exception as e:
-            st.error(f"❌ Error: {e}")
+            st.error("❌ Error al crear usuario. Puede que ya exista o la contraseña sea débil.")
 
-# Si ya hay un usuario logueado
+# ==========================
+# 👤 SESIÓN ACTIVA
+# ==========================
 if "user" in st.session_state:
-    st.sidebar.success(f"Bienvenido {st.session_state['user']}")
-    if st.sidebar.button("Cerrar sesión"):
+    st.sidebar.success(f"Sesión activa: {st.session_state['user']}")
+    if st.sidebar.button("Cerrar Sesión"):
         st.session_state.clear()
         st.rerun()
 
+    # ==========================
+    # 🧭 CONTENIDO DEL DASHBOARD
+    # ==========================
+    st.subheader("📈 Panel principal")
+    st.markdown("""
+    Bienvenido al panel del **Dashboard ISP**.  
+    Aquí podrás visualizar tus **métricas financieras**, como:
+    - ARPU  
+    - CHURN  
+    - LTV  
+    - Margen de Contribución  
+    """)
 
-# Intenta cargar firebase config desde st.secrets (Streamlit Cloud)
-if "apiKey" in st.secrets:
-    firebase_config = {
-        "apiKey": st.secrets["apiKey"],
-        "authDomain": st.secrets["authDomain"],
-        "projectId": st.secrets["projectId"],
-        "storageBucket": st.secrets["storageBucket"],
-        "messagingSenderId": st.secrets["messagingSenderId"],
-        "appId": st.secrets["appId"]
-    }
+    # Ejemplo de métrica (para test)
+    st.metric(label="ARPU Promedio", value="$15.8 USD")
+    st.metric(label="CHURN Mensual", value="1.8 %")
+    st.metric(label="LTV Promedio", value="$845 USD")
 else:
-    # Para pruebas locales: cargar firebase_config.json si existe
-    if os.path.exists("firebase_config.json"):
-        with open("firebase_config.json", "r") as f:
-            firebase_config = json.load(f)
-    else:
-        firebase_config = None
-
-st.title("Demo Dashboard ISP")
-
-if not firebase_config:
-    st.warning("No se encontró configuración de Firebase. Para deploy subí las claves a Streamlit Secrets o creá firebase_config.json localmente.")
-else:
-    st.write("Firebase configurado correctamente (datos cargados).")
-    # Aquí inicializar pyrebase / firebase_admin según lo que uses
-    # import pyrebase
-    # firebase = pyrebase.initialize_app(firebase_config)
-    # auth = firebase.auth()
-
-# Ejemplo simple de pantalla (sustituir por tu lógica)
-st.subheader("Prueba de interfaz")
-arpu = st.number_input("ARPU (USD)", value=16.0)
-churn = st.number_input("CHURN (%)", value=2.0)
-mc = st.number_input("MC (%)", value=60.0)
-cac = st.number_input("CAC (USD)", value=150.0)
-
-if st.button("Calcular LTV"):
-    churn_rate = churn / 100
-    mc_rate = mc / 100
-    if churn_rate <= 0:
-        st.error("Churn debe ser > 0")
-    else:
-        ltv = (arpu * mc_rate) / churn_rate
-        st.success(f"LTV estimado: {ltv:.2f} USD")
+    st.warning("🔒 Inicia sesión para acceder al Dashboard.")
