@@ -1,3 +1,4 @@
 streamlit>=1.20
 pyrebase4
+requests_toolbelt
 pandas
