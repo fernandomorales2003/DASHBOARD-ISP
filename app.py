@@ -1,5 +1,14 @@
 import streamlit as st
-import pyrebase
+import firebase_admin
+from firebase_admin import credentials, auth
+
+st.title("🔐 Prueba Firebase Admin")
+
+if not firebase_admin._apps:
+    cred = credentials.Certificate("serviceAccountKey.json")  # o usar variables de entorno
+    firebase_admin.initialize_app(cred)
+
+st.success("✅ Firebase Admin conectado correctamente.")
 
 # ==========================
 # 🔧 CONFIGURACIÓN FIREBASE
