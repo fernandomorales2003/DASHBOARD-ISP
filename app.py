@@ -1,6 +1,55 @@
 import streamlit as st
+import pyrebase
 import json
 import os
+
+# Configuración desde Streamlit Secrets
+firebaseConfig = {
+    "apiKey": st.secrets["apiKey"],
+    "authDomain": st.secrets["authDomain"],
+    "projectId": st.secrets["projectId"],
+    "storageBucket": st.secrets["storageBucket"],
+    "messagingSenderId": st.secrets["messagingSenderId"],
+    "appId": st.secrets["appId"],
+    "measurementId": st.secrets["measurementId"]
+}
+
+# Inicializar Firebase
+firebase = pyrebase.initialize_app(firebaseConfig)
+auth = firebase.auth()
+
+# Interfaz simple de login
+st.title("🔐 Dashboard ISP - Login")
+
+choice = st.sidebar.selectbox("Acción", ["Login", "Registrarse"])
+
+email = st.text_input("Correo electrónico")
+password = st.text_input("Contraseña", type="password")
+
+if choice == "Login":
+    if st.button("Ingresar"):
+        try:
+            user = auth.sign_in_with_email_and_password(email, password)
+            st.success("✅ Login exitoso")
+            st.session_state["user"] = email
+        except Exception as e:
+            st.error(f"❌ Error de login: {e}")
+
+elif choice == "Registrarse":
+    if st.button("Crear cuenta"):
+        try:
+            user = auth.create_user_with_email_and_password(email, password)
+            st.success("✅ Cuenta creada correctamente, ahora podés ingresar.")
+        except Exception as e:
+            st.error(f"❌ Error: {e}")
+
+# Si ya hay un usuario logueado
+if "user" in st.session_state:
+    st.sidebar.success(f"Bienvenido {st.session_state['user']}")
+    if st.sidebar.button("Cerrar sesión"):
+        st.session_state.clear()
+        st.rerun()
+
 
 # Intenta cargar firebase config desde st.secrets (Streamlit Cloud)
 if "apiKey" in st.secrets:
