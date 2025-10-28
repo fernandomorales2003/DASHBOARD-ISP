@@ -11,8 +11,9 @@ try:
         firebase_admin.initialize_app(cred)
     st.sidebar.success("✅ Conectado con Firebase correctamente")
 except Exception as e:
-    st.error("❌ Error al conectar con Firebase. Verifica tus Secrets.")
+    st.error(f"❌ Error al conectar con Firebase: {e}")
     st.stop()
+
 
 # =============================
 # 🎨 CONFIGURACIÓN GENERAL STREAMLIT
