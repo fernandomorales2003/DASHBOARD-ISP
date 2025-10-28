@@ -1,12 +1,12 @@
 import streamlit as st
 import firebase_admin
+import json
 from firebase_admin import credentials, auth
 
 # =============================
 # 🔧 CONFIGURACIÓN FIREBASE ADMIN
 # =============================
 try:
-import json
 firebase_config = json.loads(json.dumps(dict(st.secrets["FIREBASE"])))
 cred = credentials.Certificate(firebase_config)    if not firebase_admin._apps:
         firebase_admin.initialize_app(cred)
