@@ -8,7 +8,6 @@ import streamlit as st
 st.write("🔍 Keys visibles en st.secrets:", list(st.secrets.keys()))
 if "FIREBASE" in st.secrets:
     st.write("Campos en FIREBASE:", list(st.secrets["FIREBASE"].keys()))
-De
 st.write("🔍 Keys visibles en st.secrets:", list(st.secrets.keys()))
 
 # =============================
