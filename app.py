@@ -1,26 +1,32 @@
 import streamlit as st
 import firebase_admin
-import json
-from firebase_admin import credentials, auth
-
-# =============================
-# 🔧 CONFIGURACIÓN FIREBASE ADMIN
-# =============================
+from firebase_admin import credentials
 import json
 import re
 
+# =============================
+# 🔧 CONFIGURACIÓN FIREBASE ADMIN (versión robusta)
+# =============================
 try:
-    # Convertir el bloque TOML en dict plano
+    # Convertir el bloque TOML en un dict plano
     firebase_config = json.loads(json.dumps(dict(st.secrets["FIREBASE"])))
 
-    # Limpieza del campo private_key
+    # ---- LIMPIEZA FUERTE DE PRIVATE KEY ----
     pk = firebase_config["private_key"]
 
-    # Si contiene '\n', convertirlos en saltos reales
-    if "\\n" in pk:
-        pk = re.sub(r"\\n", "\n", pk)
+    # 1️⃣ Reemplazar \r o \n escapados por saltos reales
+    pk = pk.replace("\\r", "\r").replace("\\n", "\n")
 
-    # Reemplazar en el diccionario limpio
+    # 2️⃣ Quitar espacios o caracteres invisibles en los extremos
+    pk = pk.strip()
+
+    # 3️⃣ Asegurarnos que comience y termine correctamente
+    if not pk.startswith("-----BEGIN PRIVATE KEY-----"):
+        pk = "-----BEGIN PRIVATE KEY-----\n" + pk
+    if not pk.endswith("-----END PRIVATE KEY-----"):
+        pk = pk + "\n-----END PRIVATE KEY-----"
+
+    # 4️⃣ Reasignar la clave limpia al dict
     firebase_config["private_key"] = pk
 
     # Inicializar Firebase
@@ -33,8 +39,7 @@ try:
 except Exception as e:
     st.error(f"❌ Error al conectar con Firebase: {e}")
     st.stop()
-
-
+    
 # =============================
 # 🎨 CONFIGURACIÓN GENERAL STREAMLIT
 # =============================
