@@ -6,15 +6,17 @@ from firebase_admin import credentials, auth
 # =============================
 # 🔧 CONFIGURACIÓN FIREBASE ADMIN
 # =============================
+import json
+
 try:
-firebase_config = json.loads(json.dumps(dict(st.secrets["FIREBASE"])))
-cred = credentials.Certificate(firebase_config)    if not firebase_admin._apps:
+    firebase_config = json.loads(json.dumps(dict(st.secrets["FIREBASE"])))
+    cred = credentials.Certificate(firebase_config)
+    if not firebase_admin._apps:
         firebase_admin.initialize_app(cred)
     st.sidebar.success("✅ Conectado con Firebase correctamente")
 except Exception as e:
     st.error(f"❌ Error al conectar con Firebase: {e}")
     st.stop()
-
 
 # =============================
 # 🎨 CONFIGURACIÓN GENERAL STREAMLIT
