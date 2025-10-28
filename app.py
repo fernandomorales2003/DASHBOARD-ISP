@@ -2,7 +2,9 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, auth
 import json
+import streamlit as st
 
+st.write("🔍 Keys visibles en st.secrets:", list(st.secrets.keys()))
 
 # =============================
 # 🔧 CONFIGURACIÓN FIREBASE ADMIN
@@ -50,9 +52,6 @@ elif menu == "Iniciar sesión":
             st.success(f"✅ Bienvenido {email}")
         except Exception as e:
             st.error("❌ Usuario no encontrado o error de autenticación.")
-
-st.write("Keys disponibles:", list(st.secrets.keys()))
-st.write("Firebase keys:", list(st.secrets["FIREBASE"].keys()))
 
 # =============================
 # 👤 DASHBOARD ISP (SOLO USUARIOS LOGUEADOS)
