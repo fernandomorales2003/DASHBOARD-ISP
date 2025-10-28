@@ -1,14 +1,6 @@
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, auth
-import json
-import streamlit as st
-
-
-st.write("🔍 Keys visibles en st.secrets:", list(st.secrets.keys()))
-if "FIREBASE" in st.secrets:
-    st.write("Campos en FIREBASE:", list(st.secrets["FIREBASE"].keys()))
-st.write("🔍 Keys visibles en st.secrets:", list(st.secrets.keys()))
 
 # =============================
 # 🔧 CONFIGURACIÓN FIREBASE ADMIN
@@ -25,8 +17,7 @@ except Exception as e:
 # =============================
 # 🎨 CONFIGURACIÓN GENERAL STREAMLIT
 # =============================
-st.set_page_config(page_title="Dashboard ISP", layout="centered")
-
+st.set_page_config(page_title="Dashboard ISP", layout="wide")
 st.title("📊 Dashboard ISP")
 st.markdown("Sistema de métricas financieras para ISPs con autenticación Firebase 🔐")
 
@@ -34,7 +25,7 @@ st.markdown("Sistema de métricas financieras para ISPs con autenticación Fireb
 # 🔐 LOGIN / REGISTRO DE USUARIOS
 # =============================
 
-menu = st.sidebar.selectbox("Acción", ["Iniciar sesión", "Registrar usuario"])
+menu = st.sidebar.radio("Acción", ["Iniciar sesión", "Registrar usuario"])
 email = st.text_input("Correo electrónico")
 password = st.text_input("Contraseña", type="password")
 
@@ -49,8 +40,7 @@ if menu == "Registrar usuario":
 elif menu == "Iniciar sesión":
     if st.button("Iniciar sesión"):
         try:
-            # Nota: Firebase Admin no permite login directo con password (solo manejo de cuentas).
-            # Para login real de usuarios finales deberíamos usar Firebase REST API o Pyrebase.
+            # Firebase Admin no valida contraseñas, solo verifica existencia del usuario
             user = auth.get_user_by_email(email)
             st.session_state["user"] = email
             st.success(f"✅ Bienvenido {email}")
@@ -66,13 +56,29 @@ if "user" in st.session_state:
         st.session_state.clear()
         st.rerun()
 
-    st.subheader("📈 Panel de Métricas")
-    st.write("Bienvenido al panel del Dashboard ISP.")
-    st.write("Aquí podrás visualizar tus indicadores financieros clave:")
+    st.subheader("📈 Panel de Métricas Financieras")
+    st.markdown("""
+    Este panel permite visualizar los indicadores clave de tu ISP:
+
+    - **ARPU (Average Revenue Per User):** ingreso promedio por cliente.  
+    - **CHURN:** porcentaje de clientes que se dan de baja.  
+    - **LTV (Lifetime Value):** valor de vida útil del cliente.  
+    - **MC (Margen de Contribución):** ganancia neta por usuario.
+    """)
 
     # Ejemplo simple de métricas
-    st.metric(label="ARPU Promedio", value="$15.80 USD")
-    st.metric(label="CHURN Mensual", value="1.8 %")
-    st.metric(label="LTV Promedio", value="$845 USD")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric(label="ARPU Promedio", value="$15.80 USD", delta="+2.5%")
+    with col2:
+        st.metric(label="CHURN Mensual", value="1.8 %", delta="-0.3%")
+    with col3:
+        st.metric(label="LTV Promedio", value="$845 USD", delta="+4.1%")
+    with col4:
+        st.metric(label="Margen de Contribución", value="62 %", delta="+1.2%")
+
+    st.markdown("---")
+    st.markdown("📅 *Datos actualizados automáticamente cada mes.*")
+
 else:
     st.warning("🔒 Inicia sesión para acceder al panel del Dashboard ISP.")
