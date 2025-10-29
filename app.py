@@ -1,3 +1,4 @@
+import os
 import time
 import json
 import requests
@@ -25,9 +26,11 @@ def init_firebase_admin():
 
 @st.cache_resource(ttl=3600)
 def get_db():
-    """Usa una sola conexión Firestore por sesión (cache 1h)."""
+    """Conecta a Firestore usando project_id explícito (evita error de entorno)."""
     init_firebase_admin()
-    return firestore.Client()
+    project_id = st.secrets["FIREBASE"]["project_id"]
+    os.environ["GCLOUD_PROJECT"] = project_id
+    return firestore.Client(project=project_id)
 
 # ====================================
 # FIREBASE AUTH REST
@@ -93,7 +96,7 @@ def save_metrics(uid, period, arpu, churn, mc, cac, clientes):
         "clientes": int(clientes),
         "created_at": int(time.time())
     }
-    for i in range(3):  # hasta 3 intentos
+    for i in range(3):
         try:
             dref.set(data, merge=True)
             return
@@ -150,7 +153,7 @@ with st.sidebar.form("auth_form"):
 ensure_session()
 
 # ====================================
-# DASHBOARD
+# DASHBOARD PRINCIPAL
 # ====================================
 if "auth" in st.session_state:
     uid = st.session_state["auth"]["uid"]
@@ -158,7 +161,6 @@ if "auth" in st.session_state:
 
     st.subheader("📝 Cargar datos mensuales")
 
-    # Validación de fechas
     now = datetime.now()
     c1, c2 = st.columns(2)
     with c1:
@@ -166,12 +168,10 @@ if "auth" in st.session_state:
     with c2:
         month = st.selectbox("Mes", ["%02d" % m for m in range(1, 13)], index=now.month - 1)
     period = f"{year}-{month}"
-    selected_date = datetime(year, int(month), 1)
-    if selected_date > datetime(now.year, now.month, 1):
+    if datetime(year, int(month), 1) > datetime(now.year, now.month, 1):
         st.error("❌ No se pueden cargar períodos futuros.")
         st.stop()
 
-    # Inputs
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         arpu = st.number_input("ARPU (USD)", 0.0, 1000.0, 16.0, 0.1)
@@ -191,7 +191,6 @@ if "auth" in st.session_state:
         except Exception as e:
             st.error(f"Error al guardar: {e}")
 
-    # Cargar datos
     df = load_metrics(uid)
     if df.empty:
         st.info("Sin datos cargados.")
@@ -200,52 +199,28 @@ if "auth" in st.session_state:
     df = compute_derived(df)
     last = df.iloc[-1]
 
-    # KPIs
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("ARPU", f"${last['arpu']:.2f}", f"{last['arpu_var']:.1f}% vs mes anterior")
     c2.metric("CHURN", f"{last['churn']:.2f}%")
     c3.metric("LTV", f"${last['ltv']:.0f}")
     c4.metric("LTV/CAC", f"{last['ltv_cac']:.2f}x")
 
-    # =============================
-    # GRÁFICOS PRINCIPALES
-    # =============================
     st.markdown("### 📊 Gráficos de evolución")
 
-    # 1️⃣ ARPU
-    chart_arpu = alt.Chart(df).mark_line(point=True).encode(
-        x="period:N", y="arpu:Q"
-    ).properties(title="Evolución ARPU mensual")
+    chart_arpu = alt.Chart(df).mark_line(point=True).encode(x="period:N", y="arpu:Q").properties(title="Evolución ARPU")
+    chart_clientes = alt.Chart(df).mark_line(point=True, color="green").encode(x="period:N", y="clientes:Q").properties(title="Clientes actuales")
 
-    # 2️⃣ Clientes actuales
-    chart_clientes = alt.Chart(df).mark_line(point=True, color="green").encode(
-        x="period:N", y="clientes:Q"
-    ).properties(title="Cantidad de clientes actuales")
-
-    # 3️⃣ Proyección clientes (12 meses)
     churn_rate = last["churn_dec"]
     clientes_proj = [last["clientes"] * ((1 - churn_rate) ** i) for i in range(13)]
     df_proj = pd.DataFrame({"mes": list(range(13)), "clientes_proyectados": clientes_proj})
-    chart_proj = alt.Chart(df_proj).mark_line(point=True, color="orange").encode(
-        x="mes:Q", y="clientes_proyectados:Q"
-    ).properties(title="Proyección de clientes (12 meses)")
+    chart_proj = alt.Chart(df_proj).mark_line(point=True, color="orange").encode(x="mes:Q", y="clientes_proyectados:Q").properties(title="Proyección clientes (12 meses)")
 
-    # 4️⃣ LTV en función del CHURN
     churn_range = pd.Series([i / 100 for i in range(1, 11)])
-    df_ltv = pd.DataFrame({
-        "churn": churn_range,
-        "ltv": (last["arpu"] * last["mc_dec"]) / churn_range
-    })
-    chart_ltv = alt.Chart(df_ltv).mark_line(point=True, color="red").encode(
-        x=alt.X("churn:Q", title="CHURN (%)"),
-        y=alt.Y("ltv:Q", title="LTV (USD)")
-    ).properties(title="LTV en función del CHURN")
+    df_ltv = pd.DataFrame({"churn": churn_range, "ltv": (last["arpu"] * last["mc_dec"]) / churn_range})
+    chart_ltv = alt.Chart(df_ltv).mark_line(point=True, color="red").encode(x=alt.X("churn:Q", title="CHURN (%)"), y=alt.Y("ltv:Q", title="LTV (USD)")).properties(title="LTV en función del CHURN")
 
-    # 5️⃣ Relación LTV/CAC
     df_ratio = df[["period", "ltv_cac"]]
-    chart_ratio = alt.Chart(df_ratio).mark_line(point=True, color="purple").encode(
-        x="period:N", y="ltv_cac:Q"
-    )
+    chart_ratio = alt.Chart(df_ratio).mark_line(point=True, color="purple").encode(x="period:N", y="ltv_cac:Q")
     limit_line = alt.Chart(pd.DataFrame({"ltv_cac": [3]})).mark_rule(color="red", strokeDash=[5, 5]).encode(y="ltv_cac:Q")
     chart_ratio_final = (chart_ratio + limit_line).properties(title="Relación LTV/CAC (límite = 3x)")
 
@@ -261,6 +236,5 @@ if "auth" in st.session_state:
     if st.sidebar.button("Cerrar sesión"):
         st.session_state.pop("auth", None)
         st.rerun()
-
 else:
     st.info("🔒 Iniciá sesión o registrate para acceder al dashboard.")
