@@ -27,7 +27,7 @@ def init_firebase_admin():
 def get_db():
     """Usa una sola conexión Firestore por sesión (cache 1h)."""
     init_firebase_admin()
-    return firestore.client()
+    return firestore.Client()
 
 # ====================================
 # FIREBASE AUTH REST
