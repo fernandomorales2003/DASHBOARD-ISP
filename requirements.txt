@@ -1,3 +1,6 @@
 streamlit
 firebase-admin
-requests_toolbelt
+requests
+pandas
+altair
+google-cloud-firestore
