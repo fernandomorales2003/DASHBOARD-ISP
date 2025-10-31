@@ -103,7 +103,7 @@ def load_metrics_rest(uid):
     for col in ["arpu", "churn", "mc", "cac", "clientes"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # 🔍 Detectar filas inválidas con trazas
+    # 🔍 Detectar filas inválidas
     invalid_rows = []
     for i, row in df.iterrows():
         missing = [col for col in ["arpu", "churn", "mc", "cac", "clientes"] if pd.isna(row[col])]
@@ -111,13 +111,8 @@ def load_metrics_rest(uid):
             invalid_rows.append({
                 "period": row.get("period", "N/A"),
                 "missing": missing,
-                "row_data": dict(row)
+                "data": dict(row)
             })
-
-    if invalid_rows:
-        st.markdown("### 🧩 Debug de registros inválidos")
-        for r_inv in invalid_rows:
-            st.json(r_inv)
 
     df_clean = df.dropna(subset=["arpu", "churn", "mc", "cac", "clientes"])
     return df_clean, invalid_rows
@@ -180,12 +175,14 @@ if df.empty:
     st.info("Sin datos cargados.")
     st.stop()
 
+# 🧭 Mostrar detalles exactos del registro inválido
 if invalid_rows:
     st.warning(f"⚠️ Se omitieron {len(invalid_rows)} registro(s) con datos incompletos:")
     for r in invalid_rows:
-        faltan = ", ".join(r["missing"])
         periodo = r["period"]
+        faltan = ", ".join(r["missing"])
         st.markdown(f"- 📅 **{periodo}** → faltan campos: `{faltan}`")
+        st.json(r["data"])
 
 df = compute_derived(df)
 last = df.iloc[-1]
