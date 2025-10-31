@@ -72,9 +72,10 @@ def load_metrics_rest(uid):
     path = f"tenants/{uid}/metrics"
     r = firestore_request("GET", path)
     if not r or "documents" not in r:
-        return pd.DataFrame(columns=["period","arpu","churn","mc","cac","clientes"]), 0
+        return pd.DataFrame(columns=["period","arpu","churn","mc","cac","clientes"]), []
 
     rows = []
+
     def parse_val(field):
         if not isinstance(field, dict):
             return None
@@ -103,13 +104,21 @@ def load_metrics_rest(uid):
     df = pd.DataFrame(rows)
 
     # 🔧 Sanitizar datos antes de devolver
-    original_len = len(df)
     for col in ["arpu", "churn", "mc", "cac", "clientes"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
+    # 🔎 Detectar filas inválidas
+    invalid_rows = []
+    for i, row in df.iterrows():
+        missing = [col for col in ["arpu", "churn", "mc", "cac", "clientes"] if pd.isna(row[col])]
+        if missing:
+            invalid_rows.append({
+                "period": row.get("period", "N/A"),
+                "missing": missing
+            })
+
     df_clean = df.dropna(subset=["arpu", "churn", "mc", "cac", "clientes"])
-    cleaned = original_len - len(df_clean)
-    return df_clean, cleaned
+    return df_clean, invalid_rows
 
 # ====================================
 # CÁLCULOS
@@ -163,13 +172,15 @@ if st.button("Guardar/Actualizar mes"):
     else:
         st.error("❌ Error al guardar datos.")
 
-df, cleaned = load_metrics_rest(uid)
+df, invalid_rows = load_metrics_rest(uid)
 if df.empty:
     st.info("Sin datos cargados.")
     st.stop()
 
-if cleaned > 0:
-    st.warning(f"⚠️ Se omitieron {cleaned} registro(s) por tener datos incompletos o inválidos.")
+if invalid_rows:
+    st.warning(f"⚠️ Se omitieron {len(invalid_rows)} registro(s) con datos incompletos:")
+    for r in invalid_rows:
+        st.markdown(f"- 📅 **{r['period']}** → faltan campos: `{', '.join(r['missing'])}`")
 
 df = compute_derived(df)
 last = df.iloc[-1]
