@@ -15,7 +15,7 @@ from datetime import datetime
 st.set_page_config(page_title="Dashboard ISP", layout="wide")
 
 # ====================================
-# FIREBASE ADMIN (solo credenciales)
+# FIREBASE ADMIN
 # ====================================
 def init_firebase_admin():
     if not firebase_admin._apps:
@@ -23,19 +23,51 @@ def init_firebase_admin():
         cred = credentials.Certificate(sa)
         firebase_admin.initialize_app(cred)
 
-def get_id_token():
-    """Obtiene un token de acceso para las peticiones REST a Firestore"""
-    sa = dict(st.secrets["FIREBASE"])
-    aud = "https://firestore.googleapis.com/"
-    payload = {
-        "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-        "assertion": firebase_admin.credentials.Certificate(sa).get_access_token().access_token
-    }
-    return firebase_admin.credentials.Certificate(sa).get_access_token().access_token
+# ====================================
+# FIRESTORE REST HELPER
+# ====================================
+def firestore_request(method, path, data=None):
+    """Llamadas REST al endpoint Firestore (funciona en Streamlit Cloud)."""
+    init_firebase_admin()
+    project_id = st.secrets["FIREBASE"]["project_id"]
+    base_url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/(default)/documents"
+    url = f"{base_url}/{path}"
+    headers = {"Content-Type": "application/json"}
+    try:
+        if method == "GET":
+            r = requests.get(url, headers=headers, timeout=10)
+        elif method == "PATCH":
+            r = requests.patch(url, headers=headers, json=data, timeout=10)
+        elif method == "POST":
+            r = requests.post(url, headers=headers, json=data, timeout=10)
+        else:
+            return None
+        if r.status_code not in (200, 201):
+            st.error(f"❌ Firestore error {r.status_code}: {r.text}")
+            return None
+        return r.json()
+    except Exception as e:
+        st.error(f"❌ Error de conexión Firestore REST: {e}")
+        return None
 
 # ====================================
-# FIRESTORE REST HELPERS
+# SAVE / LOAD METRICS (REST)
 # ====================================
+def save_metrics_rest(uid, period, arpu, churn, mc, cac, clientes):
+    path = f"tenants/{uid}/metrics/{period}"
+    data = {
+        "fields": {
+            "period": {"stringValue": period},
+            "arpu": {"doubleValue": arpu},
+            "churn": {"doubleValue": churn},
+            "mc": {"doubleValue": mc},
+            "cac": {"doubleValue": cac},
+            "clientes": {"integerValue": clientes},
+            "created_at": {"integerValue": int(time.time())}
+        }
+    }
+    return firestore_request("PATCH", path, data)
+
 def load_metrics_rest(uid):
     path = f"tenants/{uid}/metrics"
     r = firestore_request("GET", path)
@@ -44,8 +76,8 @@ def load_metrics_rest(uid):
     rows = []
     for doc in r["documents"]:
         f = doc["fields"]
+
         def parse_val(field):
-            # Devuelve float/int según tipo
             if "doubleValue" in field:
                 return float(field["doubleValue"])
             if "integerValue" in field:
@@ -67,7 +99,6 @@ def load_metrics_rest(uid):
         })
     return pd.DataFrame(rows)
 
-
 # ====================================
 # CÁLCULOS
 # ====================================
@@ -83,7 +114,7 @@ def compute_derived(df):
     return df
 
 # ====================================
-# INTERFAZ
+# INTERFAZ PRINCIPAL
 # ====================================
 st.title("📊 Dashboard ISP — Métricas (Firestore REST)")
 
