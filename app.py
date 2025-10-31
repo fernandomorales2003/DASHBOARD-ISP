@@ -4,12 +4,11 @@ import json
 import requests
 import streamlit as st
 import pandas as pd
-import altair as alt
 import firebase_admin
 from firebase_admin import credentials
 from datetime import datetime
 
-st.set_page_config(page_title="Dashboard ISP — Login & Planes", layout="wide")
+st.set_page_config(page_title="Dashboard ISP — Admin Panel", layout="wide")
 
 # =====================================
 # FIREBASE ADMIN INIT
@@ -47,7 +46,7 @@ def firestore_request(method, path, data=None):
         return None
 
 # =====================================
-# FIREBASE AUTH REST API
+# FIREBASE AUTH REST
 # =====================================
 def endpoints():
     api_key = st.secrets["FIREBASE_WEB"]["apiKey"]
@@ -73,7 +72,7 @@ def store_session(res):
 # =====================================
 # LOGIN / REGISTRO
 # =====================================
-st.title("📊 Dashboard ISP — Acceso seguro")
+st.title("📊 Dashboard ISP — Login")
 
 mode = st.sidebar.radio("Acción", ["Iniciar sesión", "Registrar usuario"])
 with st.sidebar.form("auth_form"):
@@ -90,7 +89,6 @@ with st.sidebar.form("auth_form"):
                 st.sidebar.error(r["error"]["message"])
             else:
                 store_session(r)
-                # Crear documento en Firestore
                 uid = r["localId"]
                 firestore_request("PATCH", f"users/{uid}", {
                     "fields": {
@@ -99,7 +97,7 @@ with st.sidebar.form("auth_form"):
                         "fecha_registro": {"integerValue": int(time.time())}
                     }
                 })
-                st.sidebar.success("✅ Usuario creado. Plan FREE asignado.")
+                st.sidebar.success("✅ Usuario creado con plan FREE.")
         else:
             r = sign_in(email, password)
             if "error" in r:
@@ -115,69 +113,58 @@ uid = st.session_state["auth"]["uid"]
 email = st.session_state["auth"]["email"]
 
 # =====================================
-# OBTENER PLAN DEL USUARIO
+# ADMIN CHECK
 # =====================================
-r = firestore_request("GET", f"users/{uid}")
-plan = "free"
-if r and "fields" in r:
-    plan = r["fields"].get("plan", {}).get("stringValue", "free")
+is_admin = email == st.secrets["ADMIN"]["email"]
 
-st.sidebar.markdown(f"🧾 **Plan actual:** `{plan.upper()}`")
-
-# =====================================
-# FUNCIONALIDAD SEGÚN PLAN
-# =====================================
-if plan == "free":
-    st.header("🌱 Versión FREE")
-    st.info("Accedé a métricas básicas: ARPU, CHURN, LTV y Clientes.")
-elif plan == "pro":
-    st.header("🚀 Versión PRO")
-    st.success("Accedés a todos los indicadores financieros y proyecciones.")
-elif plan == "premium":
-    st.header("💎 Versión PREMIUM")
-    st.success("Acceso completo: métricas, comparativas, alertas y multiusuario.")
-
-st.markdown("---")
+if is_admin:
+    st.sidebar.success("👑 Modo administrador activo")
+else:
+    st.sidebar.info(f"Usuario: {email}")
 
 # =====================================
-# SIMULACIÓN DE DASHBOARD POR PLAN
+# PANEL ADMINISTRADOR
 # =====================================
-if plan == "free":
-    st.metric("ARPU", "$16.00", "+2% vs mes anterior")
-    st.metric("CHURN", "2.5%")
-    st.metric("Clientes actuales", "1,250")
-    st.metric("LTV", "$350.00")
-    st.warning("🔒 Funcionalidades avanzadas disponibles en PRO o PREMIUM")
+if is_admin:
+    st.header("👥 Panel de administración de usuarios")
 
-elif plan == "pro":
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("ARPU", "$18.00", "+3%")
-    c2.metric("CHURN", "1.8%")
-    c3.metric("LTV", "$500.00")
-    c4.metric("LTV/CAC", "3.2x")
-    st.altair_chart(
-        alt.Chart(pd.DataFrame({"period": ["Ago", "Sep", "Oct"], "ARPU": [15, 16, 18]}))
-        .mark_line(point=True)
-        .encode(x="period", y="ARPU"), use_container_width=True
-    )
+    res = firestore_request("GET", "users")
+    if not res or "documents" not in res:
+        st.warning("No se encontraron usuarios.")
+    else:
+        users = []
+        for doc in res["documents"]:
+            f = doc["fields"]
+            users.append({
+                "uid": doc["name"].split("/")[-1],
+                "email": f.get("email", {}).get("stringValue", ""),
+                "plan": f.get("plan", {}).get("stringValue", "free"),
+                "fecha": datetime.fromtimestamp(int(f.get("fecha_registro", {}).get("integerValue", "0"))).strftime("%Y-%m-%d")
+            })
 
-elif plan == "premium":
-    st.markdown("### 📈 Dashboard Integral")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Disponibilidad de red", "99.95%")
-    c2.metric("Tiempo medio de reparación", "2.3h")
-    c3.metric("Rentabilidad neta", "32%")
-    st.altair_chart(
-        alt.Chart(pd.DataFrame({"Mes": list(range(1, 13)), "Clientes": [1000 + i*25 for i in range(12)]}))
-        .mark_line(point=True, color="#4fb4ca")
-        .encode(x="Mes", y="Clientes"), use_container_width=True
-    )
+        df_users = pd.DataFrame(users)
+        st.dataframe(df_users, use_container_width=True)
 
-# =====================================
-# BOTONES DE UPGRADE
-# =====================================
-st.markdown("---")
-if plan == "free":
-    st.info("🚀 Pasá a PRO y desbloqueá indicadores de rentabilidad y proyecciones.")
-elif plan == "pro":
-    st.info("💎 Actualizá a PREMIUM para comparar redes, zonas y alertas automáticas.")
+        for user in users:
+            c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
+            with c1:
+                st.markdown(f"**{user['email']}** — Plan: `{user['plan']}`")
+            with c2:
+                if st.button("🪙 Free", key=f"free_{user['uid']}"):
+                    firestore_request("PATCH", f"users/{user['uid']}", {"fields": {"plan": {"stringValue": "free"}}})
+                    st.success(f"Actualizado a FREE → {user['email']}")
+                    st.rerun()
+            with c3:
+                if st.button("🚀 Pro", key=f"pro_{user['uid']}"):
+                    firestore_request("PATCH", f"users/{user['uid']}", {"fields": {"plan": {"stringValue": "pro"}}})
+                    st.success(f"Actualizado a PRO → {user['email']}")
+                    st.rerun()
+            with c4:
+                if st.button("💎 Premium", key=f"prem_{user['uid']}"):
+                    firestore_request("PATCH", f"users/{user['uid']}", {"fields": {"plan": {"stringValue": "premium"}}})
+                    st.success(f"Actualizado a PREMIUM → {user['email']}")
+                    st.rerun()
+
+else:
+    st.header("🌱 Panel de usuario")
+    st.info("Versión Free / Pro / Premium según tu plan.")
