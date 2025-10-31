@@ -9,30 +9,27 @@ import firebase_admin
 from firebase_admin import credentials
 from datetime import datetime
 
-# ====================================
-# CONFIG GENERAL
-# ====================================
 st.set_page_config(page_title="Dashboard ISP", layout="wide")
 
-# ====================================
+# ===========================
 # FIREBASE ADMIN
-# ====================================
+# ===========================
 def init_firebase_admin():
     if not firebase_admin._apps:
         sa = json.loads(json.dumps(dict(st.secrets["FIREBASE"])))
         cred = credentials.Certificate(sa)
         firebase_admin.initialize_app(cred)
 
-# ====================================
+# ===========================
 # FIRESTORE REST HELPER
-# ====================================
+# ===========================
 def firestore_request(method, path, data=None):
-    """Llamadas REST al endpoint Firestore (funciona en Streamlit Cloud)."""
     init_firebase_admin()
     project_id = st.secrets["FIREBASE"]["project_id"]
     base_url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/(default)/documents"
     url = f"{base_url}/{path}"
     headers = {"Content-Type": "application/json"}
+
     try:
         if method == "GET":
             r = requests.get(url, headers=headers, timeout=10)
@@ -42,17 +39,18 @@ def firestore_request(method, path, data=None):
             r = requests.post(url, headers=headers, json=data, timeout=10)
         else:
             return None
+
         if r.status_code not in (200, 201):
             st.error(f"❌ Firestore error {r.status_code}: {r.text}")
             return None
         return r.json()
     except Exception as e:
-        st.error(f"❌ Error de conexión Firestore REST: {e}")
+        st.error(f"❌ Error conexión Firestore: {e}")
         return None
 
-# ====================================
-# SAVE / LOAD METRICS (REST)
-# ====================================
+# ===========================
+# SAVE / LOAD METRICS
+# ===========================
 def save_metrics_rest(uid, period, arpu, churn, mc, cac, clientes):
     path = f"tenants/{uid}/metrics/{period}"
     data = {
@@ -77,7 +75,7 @@ def load_metrics_rest(uid):
     rows = []
 
     def parse_val(field):
-        if not isinstance(field, dict):
+        if not isinstance(field, dict) or len(field) == 0:
             return None
         if "doubleValue" in field:
             return float(field["doubleValue"])
@@ -102,27 +100,31 @@ def load_metrics_rest(uid):
         })
 
     df = pd.DataFrame(rows)
-
-    # 🔧 Sanitizar datos antes de devolver
     for col in ["arpu", "churn", "mc", "cac", "clientes"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # 🔎 Detectar filas inválidas
+    # 🔍 Detectar filas inválidas con trazas
     invalid_rows = []
     for i, row in df.iterrows():
         missing = [col for col in ["arpu", "churn", "mc", "cac", "clientes"] if pd.isna(row[col])]
         if missing:
             invalid_rows.append({
                 "period": row.get("period", "N/A"),
-                "missing": missing
+                "missing": missing,
+                "row_data": dict(row)
             })
+
+    if invalid_rows:
+        st.markdown("### 🧩 Debug de registros inválidos")
+        for r_inv in invalid_rows:
+            st.json(r_inv)
 
     df_clean = df.dropna(subset=["arpu", "churn", "mc", "cac", "clientes"])
     return df_clean, invalid_rows
 
-# ====================================
+# ===========================
 # CÁLCULOS
-# ====================================
+# ===========================
 def compute_derived(df):
     if df.empty:
         return df
@@ -134,9 +136,9 @@ def compute_derived(df):
     df["arpu_var"] = df["arpu"].pct_change() * 100
     return df
 
-# ====================================
-# INTERFAZ PRINCIPAL
-# ====================================
+# ===========================
+# UI PRINCIPAL
+# ===========================
 st.title("📊 Dashboard ISP — Métricas (Firestore REST)")
 
 uid = "test_user"
@@ -149,6 +151,7 @@ with c1:
 with c2:
     month = st.selectbox("Mes", ["%02d" % m for m in range(1, 13)], index=now.month - 1)
 period = f"{year}-{month}"
+
 if datetime(year, int(month), 1) > datetime(now.year, now.month, 1):
     st.error("❌ No se pueden cargar períodos futuros.")
     st.stop()
@@ -177,7 +180,6 @@ if df.empty:
     st.info("Sin datos cargados.")
     st.stop()
 
-# 🆕 Mensaje detallado de omisiones
 if invalid_rows:
     st.warning(f"⚠️ Se omitieron {len(invalid_rows)} registro(s) con datos incompletos:")
     for r in invalid_rows:
