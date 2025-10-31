@@ -74,28 +74,30 @@ def load_metrics_rest(uid):
     if not r or "documents" not in r:
         return pd.DataFrame(columns=["period","arpu","churn","mc","cac","clientes"])
     rows = []
-    for doc in r["documents"]:
-        f = doc["fields"]
 
-        def parse_val(field):
-            if "doubleValue" in field:
-                return float(field["doubleValue"])
-            if "integerValue" in field:
-                return int(field["integerValue"])
-            if "stringValue" in field:
-                try:
-                    return float(field["stringValue"])
-                except:
-                    return field["stringValue"]
+    def parse_val(field):
+        if not isinstance(field, dict):
             return None
+        if "doubleValue" in field:
+            return float(field["doubleValue"])
+        if "integerValue" in field:
+            return int(field["integerValue"])
+        if "stringValue" in field:
+            try:
+                return float(field["stringValue"])
+            except:
+                return field["stringValue"]
+        return None
 
+    for doc in r["documents"]:
+        f = doc.get("fields", {})
         rows.append({
-            "period": f["period"]["stringValue"],
-            "arpu": parse_val(f["arpu"]),
-            "churn": parse_val(f["churn"]),
-            "mc": parse_val(f["mc"]),
-            "cac": parse_val(f["cac"]),
-            "clientes": parse_val(f["clientes"]),
+            "period": f.get("period", {}).get("stringValue", "N/A"),
+            "arpu": parse_val(f.get("arpu", {})),
+            "churn": parse_val(f.get("churn", {})),
+            "mc": parse_val(f.get("mc", {})),
+            "cac": parse_val(f.get("cac", {})),
+            "clientes": parse_val(f.get("clientes", {})),
         })
     return pd.DataFrame(rows)
 
