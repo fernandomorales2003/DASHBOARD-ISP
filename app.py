@@ -36,44 +36,6 @@ def get_id_token():
 # ====================================
 # FIRESTORE REST HELPERS
 # ====================================
-def firestore_request(method, path, data=None):
-    """Realiza llamadas REST al endpoint de Firestore"""
-    init_firebase_admin()
-    project_id = st.secrets["FIREBASE"]["project_id"]
-    base_url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/(default)/documents"
-    url = f"{base_url}/{path}"
-    headers = {"Content-Type": "application/json"}
-    try:
-        if method == "GET":
-            r = requests.get(url, headers=headers, timeout=10)
-        elif method == "PATCH":
-            r = requests.patch(url, headers=headers, json=data, timeout=10)
-        elif method == "POST":
-            r = requests.post(url, headers=headers, json=data, timeout=10)
-        else:
-            return None
-        if r.status_code not in (200, 201):
-            st.error(f"❌ Firestore error {r.status_code}: {r.text}")
-        return r.json()
-    except Exception as e:
-        st.error(f"❌ Error de conexión Firestore REST: {e}")
-        return None
-
-def save_metrics_rest(uid, period, arpu, churn, mc, cac, clientes):
-    path = f"tenants/{uid}/metrics/{period}"
-    data = {
-        "fields": {
-            "period": {"stringValue": period},
-            "arpu": {"doubleValue": arpu},
-            "churn": {"doubleValue": churn},
-            "mc": {"doubleValue": mc},
-            "cac": {"doubleValue": cac},
-            "clientes": {"integerValue": clientes},
-            "created_at": {"integerValue": int(time.time())}
-        }
-    }
-    return firestore_request("PATCH", path, data)
-
 def load_metrics_rest(uid):
     path = f"tenants/{uid}/metrics"
     r = firestore_request("GET", path)
@@ -82,15 +44,29 @@ def load_metrics_rest(uid):
     rows = []
     for doc in r["documents"]:
         f = doc["fields"]
+        def parse_val(field):
+            # Devuelve float/int según tipo
+            if "doubleValue" in field:
+                return float(field["doubleValue"])
+            if "integerValue" in field:
+                return int(field["integerValue"])
+            if "stringValue" in field:
+                try:
+                    return float(field["stringValue"])
+                except:
+                    return field["stringValue"]
+            return None
+
         rows.append({
             "period": f["period"]["stringValue"],
-            "arpu": float(f["arpu"]["doubleValue"]),
-            "churn": float(f["churn"]["doubleValue"]),
-            "mc": float(f["mc"]["doubleValue"]),
-            "cac": float(f["cac"]["doubleValue"]),
-            "clientes": int(f["clientes"]["integerValue"]),
+            "arpu": parse_val(f["arpu"]),
+            "churn": parse_val(f["churn"]),
+            "mc": parse_val(f["mc"]),
+            "cac": parse_val(f["cac"]),
+            "clientes": parse_val(f["clientes"]),
         })
     return pd.DataFrame(rows)
+
 
 # ====================================
 # CÁLCULOS
