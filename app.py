@@ -177,10 +177,13 @@ if df.empty:
     st.info("Sin datos cargados.")
     st.stop()
 
+# 🆕 Mensaje detallado de omisiones
 if invalid_rows:
     st.warning(f"⚠️ Se omitieron {len(invalid_rows)} registro(s) con datos incompletos:")
     for r in invalid_rows:
-        st.markdown(f"- 📅 **{r['period']}** → faltan campos: `{', '.join(r['missing'])}`")
+        faltan = ", ".join(r["missing"])
+        periodo = r["period"]
+        st.markdown(f"- 📅 **{periodo}** → faltan campos: `{faltan}`")
 
 df = compute_derived(df)
 last = df.iloc[-1]
