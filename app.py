@@ -173,23 +173,12 @@ if df.empty:
     st.info("Sin datos cargados.")
     st.stop()
 
-# 🔍 Mostrar información detallada si hay registros inválidos
 if invalid_rows:
     st.warning(f"⚠️ Se omitieron {len(invalid_rows)} registro(s) con datos incompletos:")
     for r in invalid_rows:
         periodo = r["period"]
         faltan = ", ".join(r["missing"])
         st.markdown(f"- 📅 **{periodo}** → faltan campos: `{faltan}`")
-
-        st.markdown("**Contenido del registro detectado:**")
-        if r["data"]:
-            try:
-                st.json(r["data"])
-            except Exception:
-                st.write("⚠️ No se pudo mostrar como JSON. Valor crudo:")
-                st.write(r["data"])
-        else:
-            st.info("ℹ️ El documento no contiene campos válidos (vacío o sin datos legibles).")
 
 df = compute_derived(df)
 last = df.iloc[-1]
@@ -205,3 +194,50 @@ chart_arpu = alt.Chart(df).mark_line(point=True).encode(x="period:N", y="arpu:Q"
 chart_clientes = alt.Chart(df).mark_line(point=True, color="green").encode(x="period:N", y="clientes:Q").properties(title="Clientes actuales")
 st.altair_chart(chart_arpu, use_container_width=True)
 st.altair_chart(chart_clientes, use_container_width=True)
+
+# =====================================
+# NUEVO MÓDULO: PROYECCIONES EXTENDIDAS
+# =====================================
+st.markdown("---")
+st.subheader("📈 Proyecciones según CHURN, ARPU y MC")
+
+col1, col2, col3 = st.columns(3)
+horizonte = None
+if col1.button("📆 Proyectar 6 meses"):
+    horizonte = 6
+elif col2.button("📆 Proyectar 1 año"):
+    horizonte = 12
+elif col3.button("📆 Proyectar 2 años"):
+    horizonte = 24
+
+if horizonte:
+    churn_dec = last["churn"] / 100
+    arpu_val = last["arpu"]
+    mc_val = last["mc"] / 100
+    clientes_ini = last["clientes"]
+
+    # Proyección
+    clientes_fin = clientes_ini * ((1 - churn_dec) ** horizonte)
+    clientes_prom = (clientes_ini + clientes_fin) / 2
+    ingresos_brutos = clientes_prom * arpu_val * horizonte
+    ingresos_netos = ingresos_brutos * mc_val
+    ltv_meses = 1 / churn_dec
+
+    st.markdown(f"### 🧮 Proyección a {horizonte} meses")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Clientes finales", f"{clientes_fin:,.0f}", f"-{(1 - clientes_fin/clientes_ini)*100:.1f}%")
+    c2.metric("Ingresos brutos", f"${ingresos_brutos:,.0f}")
+    c3.metric("Ingresos netos (MC%)", f"${ingresos_netos:,.0f}")
+    c4.metric("Tiempo de vida (LTV)", f"{ltv_meses:.1f} meses")
+
+    # Gráfico de proyección
+    meses = list(range(horizonte + 1))
+    clientes_mes = [clientes_ini * ((1 - churn_dec) ** m) for m in meses]
+    df_proj = pd.DataFrame({"Mes": meses, "Clientes": clientes_mes})
+    chart_proj = (
+        alt.Chart(df_proj)
+        .mark_line(point=True, color="#4fb4ca")
+        .encode(x="Mes:Q", y="Clientes:Q")
+        .properties(title=f"Evolución de clientes proyectados ({horizonte} meses)")
+    )
+    st.altair_chart(chart_proj, use_container_width=True)
