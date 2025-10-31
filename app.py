@@ -201,14 +201,18 @@ st.altair_chart(chart_clientes, use_container_width=True)
 st.markdown("---")
 st.subheader("📈 Proyecciones según CHURN, ARPU y MC")
 
+if "horizonte" not in st.session_state:
+    st.session_state["horizonte"] = None
+
 col1, col2, col3 = st.columns(3)
-horizonte = None
 if col1.button("📆 Proyectar 6 meses"):
-    horizonte = 6
-elif col2.button("📆 Proyectar 1 año"):
-    horizonte = 12
-elif col3.button("📆 Proyectar 2 años"):
-    horizonte = 24
+    st.session_state["horizonte"] = 6
+if col2.button("📆 Proyectar 1 año"):
+    st.session_state["horizonte"] = 12
+if col3.button("📆 Proyectar 2 años"):
+    st.session_state["horizonte"] = 24
+
+horizonte = st.session_state["horizonte"]
 
 if horizonte:
     churn_dec = last["churn"] / 100
@@ -216,7 +220,6 @@ if horizonte:
     mc_val = last["mc"] / 100
     clientes_ini = last["clientes"]
 
-    # Proyección
     clientes_fin = clientes_ini * ((1 - churn_dec) ** horizonte)
     clientes_prom = (clientes_ini + clientes_fin) / 2
     ingresos_brutos = clientes_prom * arpu_val * horizonte
@@ -230,14 +233,34 @@ if horizonte:
     c3.metric("Ingresos netos (MC%)", f"${ingresos_netos:,.0f}")
     c4.metric("Tiempo de vida (LTV)", f"{ltv_meses:.1f} meses")
 
-    # Gráfico de proyección
-    meses = list(range(horizonte + 1))
+    # Clientes por mes
+    meses = list(range(1, horizonte + 1))
     clientes_mes = [clientes_ini * ((1 - churn_dec) ** m) for m in meses]
     df_proj = pd.DataFrame({"Mes": meses, "Clientes": clientes_mes})
-    chart_proj = (
+
+    # Ingresos mensuales
+    df_proj["Ingresos Brutos"] = df_proj["Clientes"] * arpu_val
+    df_proj["Ingresos Netos"] = df_proj["Ingresos Brutos"] * mc_val
+
+    # --- Gráfico clientes
+    chart_clientes = (
         alt.Chart(df_proj)
         .mark_line(point=True, color="#4fb4ca")
         .encode(x="Mes:Q", y="Clientes:Q")
         .properties(title=f"Evolución de clientes proyectados ({horizonte} meses)")
     )
-    st.altair_chart(chart_proj, use_container_width=True)
+    st.altair_chart(chart_clientes, use_container_width=True)
+
+    # --- Gráfico ingresos brutos y netos
+    df_melt = df_proj.melt("Mes", ["Ingresos Brutos", "Ingresos Netos"], var_name="Tipo", value_name="USD")
+    chart_ingresos = (
+        alt.Chart(df_melt)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("Mes:Q", title="Mes"),
+            y=alt.Y("USD:Q", title="Ingresos (USD)"),
+            color=alt.Color("Tipo:N", scale=alt.Scale(range=["#4b9fea", "#00cc83"]))
+        )
+        .properties(title="Evolución de ingresos brutos y netos")
+    )
+    st.altair_chart(chart_ingresos, use_container_width=True)
