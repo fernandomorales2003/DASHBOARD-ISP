@@ -9,7 +9,7 @@ import firebase_admin
 from firebase_admin import credentials
 from datetime import datetime
 
-st.set_page_config(page_title="Dashboard ISP — Firestore REST", layout="wide")
+st.set_page_config(page_title="Dashboard ISP — Login & Planes", layout="wide")
 
 # =====================================
 # FIREBASE ADMIN INIT
@@ -47,221 +47,137 @@ def firestore_request(method, path, data=None):
         return None
 
 # =====================================
-# SAVE / LOAD METRICS (REST)
+# FIREBASE AUTH REST API
 # =====================================
-def save_metrics_rest(uid, period, arpu, churn, mc, cac, clientes):
-    path = f"tenants/{uid}/metrics/{period}"
-    data = {
-        "fields": {
-            "period": {"stringValue": period},
-            "arpu": {"doubleValue": arpu},
-            "churn": {"doubleValue": churn},
-            "mc": {"doubleValue": mc},
-            "cac": {"doubleValue": cac},
-            "clientes": {"integerValue": clientes},
-            "created_at": {"integerValue": int(time.time())}
-        }
+def endpoints():
+    api_key = st.secrets["FIREBASE_WEB"]["apiKey"]
+    base_auth = "https://identitytoolkit.googleapis.com/v1"
+    return {
+        "sign_in": f"{base_auth}/accounts:signInWithPassword?key={api_key}",
+        "sign_up": f"{base_auth}/accounts:signUp?key={api_key}",
     }
-    return firestore_request("PATCH", path, data)
 
-def load_metrics_rest(uid):
-    path = f"tenants/{uid}/metrics"
-    r = firestore_request("GET", path)
-    if not r or "documents" not in r:
-        return pd.DataFrame(columns=["period","arpu","churn","mc","cac","clientes"]), []
+def sign_in(email, password):
+    return requests.post(endpoints()["sign_in"], json={"email": email, "password": password, "returnSecureToken": True}).json()
 
-    rows = []
+def sign_up(email, password):
+    return requests.post(endpoints()["sign_up"], json={"email": email, "password": password, "returnSecureToken": True}).json()
 
-    def parse_val(field):
-        if not isinstance(field, dict) or len(field) == 0:
-            return None
-        if "doubleValue" in field:
-            return float(field["doubleValue"])
-        if "integerValue" in field:
-            return int(field["integerValue"])
-        if "stringValue" in field:
-            try:
-                return float(field["stringValue"])
-            except:
-                return field["stringValue"]
-        return None
-
-    for doc in r["documents"]:
-        f = doc.get("fields", {})
-        rows.append({
-            "period": f.get("period", {}).get("stringValue", "N/A"),
-            "arpu": parse_val(f.get("arpu", {})),
-            "churn": parse_val(f.get("churn", {})),
-            "mc": parse_val(f.get("mc", {})),
-            "cac": parse_val(f.get("cac", {})),
-            "clientes": parse_val(f.get("clientes", {})),
-        })
-
-    df = pd.DataFrame(rows)
-    for col in ["arpu", "churn", "mc", "cac", "clientes"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    # Detectar filas inválidas
-    invalid_rows = []
-    for i, row in df.iterrows():
-        missing = [col for col in ["arpu", "churn", "mc", "cac", "clientes"] if pd.isna(row[col])]
-        if missing:
-            invalid_rows.append({
-                "period": row.get("period", "N/A"),
-                "missing": missing,
-                "data": dict(row)
-            })
-
-    df_clean = df.dropna(subset=["arpu", "churn", "mc", "cac", "clientes"])
-    return df_clean, invalid_rows
+def store_session(res):
+    st.session_state["auth"] = {
+        "id_token": res.get("idToken"),
+        "uid": res.get("localId"),
+        "email": res.get("email")
+    }
 
 # =====================================
-# CÁLCULOS
+# LOGIN / REGISTRO
 # =====================================
-def compute_derived(df):
-    if df.empty:
-        return df
-    df = df.copy()
-    df["churn_dec"] = df["churn"] / 100
-    df["mc_dec"] = df["mc"] / 100
-    df["ltv"] = (df["arpu"] * df["mc_dec"]) / df["churn_dec"]
-    df["ltv_cac"] = df["ltv"] / df["cac"]
-    df["arpu_var"] = df["arpu"].pct_change() * 100
-    return df
+st.title("📊 Dashboard ISP — Acceso seguro")
 
-# =====================================
-# UI PRINCIPAL
-# =====================================
-st.title("📊 Dashboard ISP — Métricas (Firestore REST)")
+mode = st.sidebar.radio("Acción", ["Iniciar sesión", "Registrar usuario"])
+with st.sidebar.form("auth_form"):
+    email = st.text_input("Correo electrónico")
+    password = st.text_input("Contraseña", type="password")
+    submitted = st.form_submit_button("Continuar")
 
-uid = "test_user"
-st.subheader("📝 Cargar datos mensuales")
+    if submitted:
+        if not email or not password:
+            st.sidebar.error("Completá email y contraseña.")
+        elif mode == "Registrar usuario":
+            r = sign_up(email, password)
+            if "error" in r:
+                st.sidebar.error(r["error"]["message"])
+            else:
+                store_session(r)
+                # Crear documento en Firestore
+                uid = r["localId"]
+                firestore_request("PATCH", f"users/{uid}", {
+                    "fields": {
+                        "email": {"stringValue": email},
+                        "plan": {"stringValue": "free"},
+                        "fecha_registro": {"integerValue": int(time.time())}
+                    }
+                })
+                st.sidebar.success("✅ Usuario creado. Plan FREE asignado.")
+        else:
+            r = sign_in(email, password)
+            if "error" in r:
+                st.sidebar.error(r["error"]["message"])
+            else:
+                store_session(r)
+                st.sidebar.success(f"Bienvenido {r.get('email')}")
 
-now = datetime.now()
-c1, c2 = st.columns(2)
-with c1:
-    year = st.selectbox("Año", list(range(2018, now.year + 1)), index=now.year - 2018)
-with c2:
-    month = st.selectbox("Mes", ["%02d" % m for m in range(1, 13)], index=now.month - 1)
-period = f"{year}-{month}"
-
-if datetime(year, int(month), 1) > datetime(now.year, now.month, 1):
-    st.error("❌ No se pueden cargar períodos futuros.")
+if "auth" not in st.session_state:
     st.stop()
 
-c1, c2, c3, c4, c5 = st.columns(5)
-with c1:
-    arpu = st.number_input("ARPU (USD)", 0.0, 1000.0, 16.0, 0.1)
-with c2:
-    churn = st.number_input("CHURN (%)", 0.01, 50.0, 2.0, 0.01)
-with c3:
-    mc = st.number_input("MC (%)", 1.0, 100.0, 60.0, 0.1)
-with c4:
-    cac = st.number_input("CAC (USD)", 0.0, 10000.0, 150.0, 1.0)
-with c5:
-    clientes = st.number_input("Clientes actuales", 1, 100000, 1000, 10)
-
-if st.button("Guardar/Actualizar mes"):
-    res = save_metrics_rest(uid, period, arpu, churn, mc, cac, clientes)
-    if res:
-        st.success(f"✅ Datos guardados en Firestore ({period})")
-    else:
-        st.error("❌ Error al guardar datos.")
-
-df, invalid_rows = load_metrics_rest(uid)
-if df.empty:
-    st.info("Sin datos cargados.")
-    st.stop()
-
-if invalid_rows:
-    st.warning(f"⚠️ Se omitieron {len(invalid_rows)} registro(s) con datos incompletos:")
-    for r in invalid_rows:
-        periodo = r["period"]
-        faltan = ", ".join(r["missing"])
-        st.markdown(f"- 📅 **{periodo}** → faltan campos: `{faltan}`")
-
-df = compute_derived(df)
-last = df.iloc[-1]
-
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("ARPU", f"${last['arpu']:.2f}", f"{last['arpu_var']:.1f}% vs mes anterior")
-c2.metric("CHURN", f"{last['churn']:.2f}%")
-c3.metric("LTV", f"${last['ltv']:.0f}")
-c4.metric("LTV/CAC", f"{last['ltv_cac']:.2f}x")
-
-st.markdown("### 📊 Gráficos de evolución")
-chart_arpu = alt.Chart(df).mark_line(point=True).encode(x="period:N", y="arpu:Q").properties(title="Evolución ARPU")
-chart_clientes = alt.Chart(df).mark_line(point=True, color="green").encode(x="period:N", y="clientes:Q").properties(title="Clientes actuales")
-st.altair_chart(chart_arpu, use_container_width=True)
-st.altair_chart(chart_clientes, use_container_width=True)
+uid = st.session_state["auth"]["uid"]
+email = st.session_state["auth"]["email"]
 
 # =====================================
-# NUEVO MÓDULO: PROYECCIONES EXTENDIDAS
+# OBTENER PLAN DEL USUARIO
+# =====================================
+r = firestore_request("GET", f"users/{uid}")
+plan = "free"
+if r and "fields" in r:
+    plan = r["fields"].get("plan", {}).get("stringValue", "free")
+
+st.sidebar.markdown(f"🧾 **Plan actual:** `{plan.upper()}`")
+
+# =====================================
+# FUNCIONALIDAD SEGÚN PLAN
+# =====================================
+if plan == "free":
+    st.header("🌱 Versión FREE")
+    st.info("Accedé a métricas básicas: ARPU, CHURN, LTV y Clientes.")
+elif plan == "pro":
+    st.header("🚀 Versión PRO")
+    st.success("Accedés a todos los indicadores financieros y proyecciones.")
+elif plan == "premium":
+    st.header("💎 Versión PREMIUM")
+    st.success("Acceso completo: métricas, comparativas, alertas y multiusuario.")
+
+st.markdown("---")
+
+# =====================================
+# SIMULACIÓN DE DASHBOARD POR PLAN
+# =====================================
+if plan == "free":
+    st.metric("ARPU", "$16.00", "+2% vs mes anterior")
+    st.metric("CHURN", "2.5%")
+    st.metric("Clientes actuales", "1,250")
+    st.metric("LTV", "$350.00")
+    st.warning("🔒 Funcionalidades avanzadas disponibles en PRO o PREMIUM")
+
+elif plan == "pro":
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("ARPU", "$18.00", "+3%")
+    c2.metric("CHURN", "1.8%")
+    c3.metric("LTV", "$500.00")
+    c4.metric("LTV/CAC", "3.2x")
+    st.altair_chart(
+        alt.Chart(pd.DataFrame({"period": ["Ago", "Sep", "Oct"], "ARPU": [15, 16, 18]}))
+        .mark_line(point=True)
+        .encode(x="period", y="ARPU"), use_container_width=True
+    )
+
+elif plan == "premium":
+    st.markdown("### 📈 Dashboard Integral")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Disponibilidad de red", "99.95%")
+    c2.metric("Tiempo medio de reparación", "2.3h")
+    c3.metric("Rentabilidad neta", "32%")
+    st.altair_chart(
+        alt.Chart(pd.DataFrame({"Mes": list(range(1, 13)), "Clientes": [1000 + i*25 for i in range(12)]}))
+        .mark_line(point=True, color="#4fb4ca")
+        .encode(x="Mes", y="Clientes"), use_container_width=True
+    )
+
+# =====================================
+# BOTONES DE UPGRADE
 # =====================================
 st.markdown("---")
-st.subheader("📈 Proyecciones según CHURN, ARPU y MC")
-
-if "horizonte" not in st.session_state:
-    st.session_state["horizonte"] = None
-
-col1, col2, col3 = st.columns(3)
-if col1.button("📆 Proyectar 6 meses"):
-    st.session_state["horizonte"] = 6
-if col2.button("📆 Proyectar 1 año"):
-    st.session_state["horizonte"] = 12
-if col3.button("📆 Proyectar 2 años"):
-    st.session_state["horizonte"] = 24
-
-horizonte = st.session_state["horizonte"]
-
-if horizonte:
-    churn_dec = last["churn"] / 100
-    arpu_val = last["arpu"]
-    mc_val = last["mc"] / 100
-    clientes_ini = last["clientes"]
-
-    clientes_fin = clientes_ini * ((1 - churn_dec) ** horizonte)
-    clientes_prom = (clientes_ini + clientes_fin) / 2
-    ingresos_brutos = clientes_prom * arpu_val * horizonte
-    ingresos_netos = ingresos_brutos * mc_val
-    ltv_meses = 1 / churn_dec
-
-    st.markdown(f"### 🧮 Proyección a {horizonte} meses")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Clientes finales", f"{clientes_fin:,.0f}", f"-{(1 - clientes_fin/clientes_ini)*100:.1f}%")
-    c2.metric("Ingresos brutos", f"${ingresos_brutos:,.0f}")
-    c3.metric("Ingresos netos (MC%)", f"${ingresos_netos:,.0f}")
-    c4.metric("Tiempo de vida (LTV)", f"{ltv_meses:.1f} meses")
-
-    # --- Datos para gráficos
-    meses = list(range(1, horizonte + 1))
-    clientes_mes = [clientes_ini * ((1 - churn_dec) ** m) for m in meses]
-    df_proj = pd.DataFrame({"Mes": meses, "Clientes": clientes_mes})
-    df_proj["Ingresos Brutos"] = df_proj["Clientes"] * arpu_val
-    df_proj["Ingresos Netos"] = df_proj["Ingresos Brutos"] * mc_val
-
-    # --- Gráficos lado a lado
-    g1, g2 = st.columns(2)
-
-    with g1:
-        chart_clientes = (
-            alt.Chart(df_proj)
-            .mark_line(point=True, color="#4fb4ca")
-            .encode(x="Mes:Q", y="Clientes:Q")
-            .properties(title=f"Evolución de clientes proyectados ({horizonte} meses)")
-        )
-        st.altair_chart(chart_clientes, use_container_width=True)
-
-    with g2:
-        df_melt = df_proj.melt("Mes", ["Ingresos Brutos", "Ingresos Netos"], var_name="Tipo", value_name="USD")
-        chart_ingresos = (
-            alt.Chart(df_melt)
-            .mark_line(point=True)
-            .encode(
-                x=alt.X("Mes:Q", title="Mes"),
-                y=alt.Y("USD:Q", title="Ingresos (USD)"),
-                color=alt.Color("Tipo:N", scale=alt.Scale(range=["#4b9fea", "#00cc83"]))
-            )
-            .properties(title="Evolución de ingresos brutos y netos")
-        )
-        st.altair_chart(chart_ingresos, use_container_width=True)
+if plan == "free":
+    st.info("🚀 Pasá a PRO y desbloqueá indicadores de rentabilidad y proyecciones.")
+elif plan == "pro":
+    st.info("💎 Actualizá a PREMIUM para comparar redes, zonas y alertas automáticas.")
