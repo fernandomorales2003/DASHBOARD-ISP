@@ -82,7 +82,7 @@ def ensure_session():
     st.session_state["auth"]["expires_at"] = time.time() + int(data.get("expires_in", "3600")) - 30
 
 # ====================================
-# FIRESTORE HELPERS (optimizados)
+# FIRESTORE HELPERS
 # ====================================
 def save_metrics(uid, period, arpu, churn, mc, cac, clientes):
     db = get_db()
@@ -100,7 +100,7 @@ def save_metrics(uid, period, arpu, churn, mc, cac, clientes):
         try:
             dref.set(data, merge=True)
             return
-        except Exception:
+        except Exception as e:
             time.sleep(1.5)
     raise RuntimeError("No se pudo guardar después de varios intentos.")
 
@@ -128,7 +128,7 @@ def compute_derived(df):
 # ====================================
 # LOGIN UI
 # ====================================
-st.title("📊 Dashboard ISP — Métricas Dinámicas")
+st.title("📊 Dashboard ISP — Métricas Dinámicas (modo diagnóstico)")
 
 mode = st.sidebar.radio("Acción", ["Iniciar sesión", "Registrar usuario"])
 with st.sidebar.form("auth_form"):
@@ -153,14 +153,28 @@ with st.sidebar.form("auth_form"):
 ensure_session()
 
 # ====================================
-# DASHBOARD PRINCIPAL
+# DASHBOARD PRINCIPAL (debug)
 # ====================================
 if "auth" in st.session_state:
     uid = st.session_state["auth"]["uid"]
     st.sidebar.success(f"Sesión activa: {st.session_state['auth']['email']}")
 
-    st.subheader("📝 Cargar datos mensuales")
+    st.subheader("🧪 Diagnóstico de Firestore")
 
+    # 🔍 Test conexión a Firestore
+    if st.button("🔍 Test Firestore conexión"):
+        try:
+            db = get_db()
+            st.write("✅ Firestore inicializado correctamente:", db)
+            test_ref = db.collection("tenants").document(uid)
+            st.write("📄 Path de prueba:", test_ref.path)
+            st.success("Conexión a Firestore OK.")
+        except Exception as e:
+            st.error(f"❌ Error al conectar con Firestore: {e}")
+
+    # ====================================
+    # FORMULARIO DE CARGA
+    # ====================================
     now = datetime.now()
     c1, c2 = st.columns(2)
     with c1:
@@ -168,6 +182,7 @@ if "auth" in st.session_state:
     with c2:
         month = st.selectbox("Mes", ["%02d" % m for m in range(1, 13)], index=now.month - 1)
     period = f"{year}-{month}"
+
     if datetime(year, int(month), 1) > datetime(now.year, now.month, 1):
         st.error("❌ No se pueden cargar períodos futuros.")
         st.stop()
@@ -186,16 +201,36 @@ if "auth" in st.session_state:
 
     if st.button("Guardar/Actualizar mes"):
         try:
-            save_metrics(uid, period, arpu, churn, mc, cac, clientes)
-            st.success(f"✅ Datos guardados ({period})")
+            st.write("Intentando guardar:", period, arpu, churn, mc, cac, clientes)
+            db = get_db()
+            ref = db.collection("tenants").document(uid).collection("metrics").document(period)
+            ref.set({
+                "period": period,
+                "arpu": float(arpu),
+                "churn": float(churn),
+                "mc": float(mc),
+                "cac": float(cac),
+                "clientes": int(clientes),
+                "created_at": int(time.time())
+            })
+            st.success(f"✅ Datos guardados correctamente ({period})")
         except Exception as e:
-            st.error(f"Error al guardar: {e}")
+            st.error(f"❌ Error al guardar: {e}")
 
+    # ====================================
+    # LECTURA Y DEBUG DE DATAFRAME
+    # ====================================
     df = load_metrics(uid)
+    st.write("📂 DataFrame leído desde Firestore:")
+    st.dataframe(df)
+
     if df.empty:
-        st.info("Sin datos cargados.")
+        st.warning("⚠️ No hay datos para graficar. Verificá si se guardaron en Firestore.")
         st.stop()
 
+    # ====================================
+    # GRAFICOS (solo si hay datos)
+    # ====================================
     df = compute_derived(df)
     last = df.iloc[-1]
 
@@ -206,35 +241,10 @@ if "auth" in st.session_state:
     c4.metric("LTV/CAC", f"{last['ltv_cac']:.2f}x")
 
     st.markdown("### 📊 Gráficos de evolución")
-
     chart_arpu = alt.Chart(df).mark_line(point=True).encode(x="period:N", y="arpu:Q").properties(title="Evolución ARPU")
     chart_clientes = alt.Chart(df).mark_line(point=True, color="green").encode(x="period:N", y="clientes:Q").properties(title="Clientes actuales")
-
-    churn_rate = last["churn_dec"]
-    clientes_proj = [last["clientes"] * ((1 - churn_rate) ** i) for i in range(13)]
-    df_proj = pd.DataFrame({"mes": list(range(13)), "clientes_proyectados": clientes_proj})
-    chart_proj = alt.Chart(df_proj).mark_line(point=True, color="orange").encode(x="mes:Q", y="clientes_proyectados:Q").properties(title="Proyección clientes (12 meses)")
-
-    churn_range = pd.Series([i / 100 for i in range(1, 11)])
-    df_ltv = pd.DataFrame({"churn": churn_range, "ltv": (last["arpu"] * last["mc_dec"]) / churn_range})
-    chart_ltv = alt.Chart(df_ltv).mark_line(point=True, color="red").encode(x=alt.X("churn:Q", title="CHURN (%)"), y=alt.Y("ltv:Q", title="LTV (USD)")).properties(title="LTV en función del CHURN")
-
-    df_ratio = df[["period", "ltv_cac"]]
-    chart_ratio = alt.Chart(df_ratio).mark_line(point=True, color="purple").encode(x="period:N", y="ltv_cac:Q")
-    limit_line = alt.Chart(pd.DataFrame({"ltv_cac": [3]})).mark_rule(color="red", strokeDash=[5, 5]).encode(y="ltv_cac:Q")
-    chart_ratio_final = (chart_ratio + limit_line).properties(title="Relación LTV/CAC (límite = 3x)")
-
     st.altair_chart(chart_arpu, use_container_width=True)
     st.altair_chart(chart_clientes, use_container_width=True)
-    st.altair_chart(chart_proj, use_container_width=True)
-    st.altair_chart(chart_ltv, use_container_width=True)
-    st.altair_chart(chart_ratio_final, use_container_width=True)
 
-    st.markdown("---")
-    st.caption("Fórmulas: LTV = (ARPU × MC%) / CHURN% | LTV/CAC = LTV ÷ CAC")
-
-    if st.sidebar.button("Cerrar sesión"):
-        st.session_state.pop("auth", None)
-        st.rerun()
 else:
     st.info("🔒 Iniciá sesión o registrate para acceder al dashboard.")
