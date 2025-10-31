@@ -9,27 +9,26 @@ import firebase_admin
 from firebase_admin import credentials
 from datetime import datetime
 
-st.set_page_config(page_title="Dashboard ISP", layout="wide")
+st.set_page_config(page_title="Dashboard ISP — Firestore REST", layout="wide")
 
-# ===========================
-# FIREBASE ADMIN
-# ===========================
+# =====================================
+# FIREBASE ADMIN INIT
+# =====================================
 def init_firebase_admin():
     if not firebase_admin._apps:
         sa = json.loads(json.dumps(dict(st.secrets["FIREBASE"])))
         cred = credentials.Certificate(sa)
         firebase_admin.initialize_app(cred)
 
-# ===========================
+# =====================================
 # FIRESTORE REST HELPER
-# ===========================
+# =====================================
 def firestore_request(method, path, data=None):
     init_firebase_admin()
     project_id = st.secrets["FIREBASE"]["project_id"]
     base_url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/(default)/documents"
     url = f"{base_url}/{path}"
     headers = {"Content-Type": "application/json"}
-
     try:
         if method == "GET":
             r = requests.get(url, headers=headers, timeout=10)
@@ -39,18 +38,17 @@ def firestore_request(method, path, data=None):
             r = requests.post(url, headers=headers, json=data, timeout=10)
         else:
             return None
-
         if r.status_code not in (200, 201):
             st.error(f"❌ Firestore error {r.status_code}: {r.text}")
             return None
         return r.json()
     except Exception as e:
-        st.error(f"❌ Error conexión Firestore: {e}")
+        st.error(f"❌ Error de conexión Firestore REST: {e}")
         return None
 
-# ===========================
-# SAVE / LOAD METRICS
-# ===========================
+# =====================================
+# SAVE / LOAD METRICS (REST)
+# =====================================
 def save_metrics_rest(uid, period, arpu, churn, mc, cac, clientes):
     path = f"tenants/{uid}/metrics/{period}"
     data = {
@@ -103,7 +101,7 @@ def load_metrics_rest(uid):
     for col in ["arpu", "churn", "mc", "cac", "clientes"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # 🔍 Detectar filas inválidas
+    # Detectar filas inválidas
     invalid_rows = []
     for i, row in df.iterrows():
         missing = [col for col in ["arpu", "churn", "mc", "cac", "clientes"] if pd.isna(row[col])]
@@ -117,9 +115,9 @@ def load_metrics_rest(uid):
     df_clean = df.dropna(subset=["arpu", "churn", "mc", "cac", "clientes"])
     return df_clean, invalid_rows
 
-# ===========================
+# =====================================
 # CÁLCULOS
-# ===========================
+# =====================================
 def compute_derived(df):
     if df.empty:
         return df
@@ -131,9 +129,9 @@ def compute_derived(df):
     df["arpu_var"] = df["arpu"].pct_change() * 100
     return df
 
-# ===========================
+# =====================================
 # UI PRINCIPAL
-# ===========================
+# =====================================
 st.title("📊 Dashboard ISP — Métricas (Firestore REST)")
 
 uid = "test_user"
@@ -175,14 +173,23 @@ if df.empty:
     st.info("Sin datos cargados.")
     st.stop()
 
-# 🧭 Mostrar detalles exactos del registro inválido
+# 🔍 Mostrar información detallada si hay registros inválidos
 if invalid_rows:
     st.warning(f"⚠️ Se omitieron {len(invalid_rows)} registro(s) con datos incompletos:")
     for r in invalid_rows:
         periodo = r["period"]
         faltan = ", ".join(r["missing"])
         st.markdown(f"- 📅 **{periodo}** → faltan campos: `{faltan}`")
-        st.json(r["data"])
+
+        st.markdown("**Contenido del registro detectado:**")
+        if r["data"]:
+            try:
+                st.json(r["data"])
+            except Exception:
+                st.write("⚠️ No se pudo mostrar como JSON. Valor crudo:")
+                st.write(r["data"])
+        else:
+            st.info("ℹ️ El documento no contiene campos válidos (vacío o sin datos legibles).")
 
 df = compute_derived(df)
 last = df.iloc[-1]
