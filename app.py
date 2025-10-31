@@ -233,34 +233,35 @@ if horizonte:
     c3.metric("Ingresos netos (MC%)", f"${ingresos_netos:,.0f}")
     c4.metric("Tiempo de vida (LTV)", f"{ltv_meses:.1f} meses")
 
-    # Clientes por mes
+    # --- Datos para gráficos
     meses = list(range(1, horizonte + 1))
     clientes_mes = [clientes_ini * ((1 - churn_dec) ** m) for m in meses]
     df_proj = pd.DataFrame({"Mes": meses, "Clientes": clientes_mes})
-
-    # Ingresos mensuales
     df_proj["Ingresos Brutos"] = df_proj["Clientes"] * arpu_val
     df_proj["Ingresos Netos"] = df_proj["Ingresos Brutos"] * mc_val
 
-    # --- Gráfico clientes
-    chart_clientes = (
-        alt.Chart(df_proj)
-        .mark_line(point=True, color="#4fb4ca")
-        .encode(x="Mes:Q", y="Clientes:Q")
-        .properties(title=f"Evolución de clientes proyectados ({horizonte} meses)")
-    )
-    st.altair_chart(chart_clientes, use_container_width=True)
+    # --- Gráficos lado a lado
+    g1, g2 = st.columns(2)
 
-    # --- Gráfico ingresos brutos y netos
-    df_melt = df_proj.melt("Mes", ["Ingresos Brutos", "Ingresos Netos"], var_name="Tipo", value_name="USD")
-    chart_ingresos = (
-        alt.Chart(df_melt)
-        .mark_line(point=True)
-        .encode(
-            x=alt.X("Mes:Q", title="Mes"),
-            y=alt.Y("USD:Q", title="Ingresos (USD)"),
-            color=alt.Color("Tipo:N", scale=alt.Scale(range=["#4b9fea", "#00cc83"]))
+    with g1:
+        chart_clientes = (
+            alt.Chart(df_proj)
+            .mark_line(point=True, color="#4fb4ca")
+            .encode(x="Mes:Q", y="Clientes:Q")
+            .properties(title=f"Evolución de clientes proyectados ({horizonte} meses)")
         )
-        .properties(title="Evolución de ingresos brutos y netos")
-    )
-    st.altair_chart(chart_ingresos, use_container_width=True)
+        st.altair_chart(chart_clientes, use_container_width=True)
+
+    with g2:
+        df_melt = df_proj.melt("Mes", ["Ingresos Brutos", "Ingresos Netos"], var_name="Tipo", value_name="USD")
+        chart_ingresos = (
+            alt.Chart(df_melt)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("Mes:Q", title="Mes"),
+                y=alt.Y("USD:Q", title="Ingresos (USD)"),
+                color=alt.Color("Tipo:N", scale=alt.Scale(range=["#4b9fea", "#00cc83"]))
+            )
+            .properties(title="Evolución de ingresos brutos y netos")
+        )
+        st.altair_chart(chart_ingresos, use_container_width=True)
