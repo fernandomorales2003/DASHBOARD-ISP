@@ -54,6 +54,7 @@ def endpoints():
     return {
         "sign_in": f"{base_auth}/accounts:signInWithPassword?key={api_key}",
         "sign_up": f"{base_auth}/accounts:signUp?key={api_key}",
+        "reset": f"{base_auth}/accounts:sendOobCode?key={api_key}",
     }
 
 def sign_in(email, password):
@@ -61,6 +62,10 @@ def sign_in(email, password):
 
 def sign_up(email, password):
     return requests.post(endpoints()["sign_up"], json={"email": email, "password": password, "returnSecureToken": True}).json()
+
+def reset_password(email):
+    r = requests.post(endpoints()["reset"], json={"requestType": "PASSWORD_RESET", "email": email})
+    return r.status_code == 200
 
 def store_session(res):
     st.session_state["auth"] = {
@@ -106,6 +111,15 @@ with st.sidebar.form("auth_form"):
                 store_session(r)
                 st.sidebar.success(f"Bienvenido {r.get('email')}")
 
+if st.sidebar.button("🔑 Restaurar contraseña"):
+    if email:
+        if reset_password(email):
+            st.sidebar.success("📧 Correo de recuperación enviado.")
+        else:
+            st.sidebar.error("Error al enviar el correo.")
+    else:
+        st.sidebar.warning("Ingresá tu correo antes.")
+
 if "auth" not in st.session_state:
     st.stop()
 
@@ -146,25 +160,29 @@ if is_admin:
         st.dataframe(df_users, use_container_width=True)
 
         for user in users:
-            c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
+            c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 1])
             with c1:
                 st.markdown(f"**{user['email']}** — Plan: `{user['plan']}`")
             with c2:
                 if st.button("🪙 Free", key=f"free_{user['uid']}"):
-                    firestore_request("PATCH", f"users/{user['uid']}", {"fields": {"plan": {"stringValue": "free"}}})
-                    st.success(f"Actualizado a FREE → {user['email']}")
+                    firestore_request("PATCH", f"users/{user['uid']}", {"fields": {"plan": {"stringValue": "free"}, "email": {"stringValue": user["email"]}}})
                     st.rerun()
             with c3:
                 if st.button("🚀 Pro", key=f"pro_{user['uid']}"):
-                    firestore_request("PATCH", f"users/{user['uid']}", {"fields": {"plan": {"stringValue": "pro"}}})
-                    st.success(f"Actualizado a PRO → {user['email']}")
+                    firestore_request("PATCH", f"users/{user['uid']}", {"fields": {"plan": {"stringValue": "pro"}, "email": {"stringValue": user["email"]}}})
                     st.rerun()
             with c4:
                 if st.button("💎 Premium", key=f"prem_{user['uid']}"):
-                    firestore_request("PATCH", f"users/{user['uid']}", {"fields": {"plan": {"stringValue": "premium"}}})
-                    st.success(f"Actualizado a PREMIUM → {user['email']}")
+                    firestore_request("PATCH", f"users/{user['uid']}", {"fields": {"plan": {"stringValue": "premium"}, "email": {"stringValue": user["email"]}}})
                     st.rerun()
+            with c5:
+                if st.button("🔑 Reset", key=f"reset_{user['uid']}"):
+                    if reset_password(user["email"]):
+                        st.success(f"📧 Link enviado a {user['email']}")
+                    else:
+                        st.error(f"No se pudo enviar reset a {user['email']}")
 
 else:
     st.header("🌱 Panel de usuario")
     st.info("Versión Free / Pro / Premium según tu plan.")
+    st.write("🔹 Aquí podrás ver tus indicadores financieros y técnicos según el plan.")
