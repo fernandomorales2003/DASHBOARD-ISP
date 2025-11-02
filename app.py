@@ -64,8 +64,16 @@ def sign_up(email, password):
     return requests.post(endpoints()["sign_up"], json={"email": email, "password": password, "returnSecureToken": True}).json()
 
 def reset_password(email):
+    """Envía email de recuperación usando Firebase REST."""
+    if not email:
+        st.error("❌ No se proporcionó email para reset.")
+        return False
     r = requests.post(endpoints()["reset"], json={"requestType": "PASSWORD_RESET", "email": email})
-    return r.status_code == 200
+    if r.status_code == 200:
+        return True
+    else:
+        st.error(f"❌ Error Firebase ({r.status_code}): {r.text}")
+        return False
 
 def store_session(res):
     st.session_state["auth"] = {
@@ -137,6 +145,28 @@ else:
     st.sidebar.info(f"Usuario: {email}")
 
 # =====================================
+# FUNCIONES DE ADMIN
+# =====================================
+def update_plan(uid, nuevo_plan):
+    """Actualiza el plan sin borrar el email ni otros campos."""
+    doc = firestore_request("GET", f"users/{uid}")
+    if not doc or "fields" not in doc:
+        st.error(f"⚠️ No se encontró el documento del usuario {uid}")
+        return False
+
+    fields = doc["fields"]
+    email = fields.get("email", {}).get("stringValue", "")
+    data = {
+        "fields": {
+            "email": {"stringValue": email},
+            "plan": {"stringValue": nuevo_plan},
+            "fecha_registro": fields.get("fecha_registro", {"integerValue": int(time.time())})
+        }
+    }
+    firestore_request("PATCH", f"users/{uid}", data)
+    return True
+
+# =====================================
 # PANEL ADMINISTRADOR
 # =====================================
 if is_admin:
@@ -165,15 +195,15 @@ if is_admin:
                 st.markdown(f"**{user['email']}** — Plan: `{user['plan']}`")
             with c2:
                 if st.button("🪙 Free", key=f"free_{user['uid']}"):
-                    firestore_request("PATCH", f"users/{user['uid']}", {"fields": {"plan": {"stringValue": "free"}, "email": {"stringValue": user["email"]}}})
+                    update_plan(user["uid"], "free")
                     st.rerun()
             with c3:
                 if st.button("🚀 Pro", key=f"pro_{user['uid']}"):
-                    firestore_request("PATCH", f"users/{user['uid']}", {"fields": {"plan": {"stringValue": "pro"}, "email": {"stringValue": user["email"]}}})
+                    update_plan(user["uid"], "pro")
                     st.rerun()
             with c4:
                 if st.button("💎 Premium", key=f"prem_{user['uid']}"):
-                    firestore_request("PATCH", f"users/{user['uid']}", {"fields": {"plan": {"stringValue": "premium"}, "email": {"stringValue": user["email"]}}})
+                    update_plan(user["uid"], "premium")
                     st.rerun()
             with c5:
                 if st.button("🔑 Reset", key=f"reset_{user['uid']}"):
@@ -182,7 +212,15 @@ if is_admin:
                     else:
                         st.error(f"No se pudo enviar reset a {user['email']}")
 
+# =====================================
+# PANEL DE USUARIO NORMAL
+# =====================================
 else:
     st.header("🌱 Panel de usuario")
-    st.info("Versión Free / Pro / Premium según tu plan.")
+    r = firestore_request("GET", f"users/{uid}")
+    plan = "free"
+    if r and "fields" in r:
+        plan = r["fields"].get("plan", {}).get("stringValue", "free")
+
+    st.info(f"Tu plan actual es: **{plan.upper()}**")
     st.write("🔹 Aquí podrás ver tus indicadores financieros y técnicos según el plan.")
