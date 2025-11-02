@@ -5,10 +5,10 @@ import requests
 import streamlit as st
 import pandas as pd
 import firebase_admin
-from firebase_admin import credentials
+from firebase_admin import credentials, auth
 from datetime import datetime
 
-st.set_page_config(page_title="Dashboard ISP — Admin Panel", layout="wide")
+st.set_page_config(page_title="Dashboard ISP — Admin + Login", layout="wide")
 
 # =====================================
 # FIREBASE ADMIN INIT
@@ -22,7 +22,7 @@ def init_firebase_admin():
 # =====================================
 # FIRESTORE REST HELPER
 # =====================================
-def firestore_request(method, path, data=None):
+def firestore_request(method, path, data=None, params=None):
     init_firebase_admin()
     project_id = st.secrets["FIREBASE"]["project_id"]
     base_url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/(default)/documents"
@@ -30,7 +30,7 @@ def firestore_request(method, path, data=None):
     headers = {"Content-Type": "application/json"}
     try:
         if method == "GET":
-            r = requests.get(url, headers=headers, timeout=10)
+            r = requests.get(url, headers=headers, params=params or {}, timeout=10)
         elif method == "PATCH":
             r = requests.patch(url, headers=headers, json=data, timeout=10)
         elif method == "POST":
@@ -46,7 +46,7 @@ def firestore_request(method, path, data=None):
         return None
 
 # =====================================
-# FIREBASE AUTH REST
+# FIREBASE AUTH REST (para login/registro y reset)
 # =====================================
 def endpoints():
     api_key = st.secrets["FIREBASE_WEB"]["apiKey"]
@@ -54,7 +54,7 @@ def endpoints():
     return {
         "sign_in": f"{base_auth}/accounts:signInWithPassword?key={api_key}",
         "sign_up": f"{base_auth}/accounts:signUp?key={api_key}",
-        "reset": f"{base_auth}/accounts:sendOobCode?key={api_key}",
+        "reset":   f"{base_auth}/accounts:sendOobCode?key={api_key}",
     }
 
 def sign_in(email, password):
@@ -64,7 +64,6 @@ def sign_up(email, password):
     return requests.post(endpoints()["sign_up"], json={"email": email, "password": password, "returnSecureToken": True}).json()
 
 def reset_password(email):
-    """Envía email de recuperación usando Firebase REST."""
     if not email:
         st.error("❌ No se proporcionó email para reset.")
         return False
@@ -83,45 +82,108 @@ def store_session(res):
     }
 
 # =====================================
-# LOGIN / REGISTRO
+# HELPERS ADMIN: AUTH + USERS MERGE
 # =====================================
-st.title("📊 Dashboard ISP — Login")
+def list_auth_users():
+    """Devuelve lista de dicts con uid y email desde Firebase Auth (no Firestore)."""
+    init_firebase_admin()
+    out = []
+    page = auth.list_users()  # primera página
+    while page:
+        for u in page.users:
+            out.append({"uid": u.uid, "email": u.email or ""})
+        page = page.get_next_page()
+    return out
+
+def get_user_doc(uid):
+    """Lee users/{uid} de Firestore y retorna fields o None."""
+    r = firestore_request("GET", f"users/{uid}")
+    return r.get("fields") if (r and "fields" in r) else None
+
+def ensure_user_doc(uid, email):
+    """Asegura que exista users/{uid} con email y plan por defecto si falta."""
+    fields = get_user_doc(uid)
+    if not fields:
+        # crear doc mínimo
+        firestore_request("PATCH", f"users/{uid}", {
+            "fields": {
+                "email": {"stringValue": email or ""},
+                "plan": {"stringValue": "free"},
+                "fecha_registro": {"integerValue": int(time.time())}
+            }
+        })
+        return {"email": {"stringValue": email or ""}, "plan": {"stringValue": "free"}}
+    # si existe pero le falta email, lo corrige
+    if "email" not in fields or not fields["email"].get("stringValue", ""):
+        fields["email"] = {"stringValue": email or ""}
+        firestore_request("PATCH", f"users/{uid}", {"fields": fields})
+    return fields
+
+def update_plan(uid, nuevo_plan):
+    """Actualiza el plan preservando email (tomado desde Firestore o Auth si falta)."""
+    fields = get_user_doc(uid)
+    email = ""
+    if fields and "email" in fields:
+        email = fields["email"].get("stringValue", "")
+    if not email:
+        # fallback a Auth
+        try:
+            u = auth.get_user(uid)
+            email = u.email or ""
+        except Exception:
+            email = ""
+    data = {
+        "fields": {
+            "email": {"stringValue": email},
+            "plan": {"stringValue": nuevo_plan},
+            "fecha_registro": fields.get("fecha_registro", {"integerValue": int(time.time())}) if fields else {"integerValue": int(time.time())}
+        }
+    }
+    firestore_request("PATCH", f"users/{uid}", data)
+    return True
+
+# =====================================
+# LOGIN / REGISTRO UI
+# =====================================
+st.title("📊 Dashboard ISP — Acceso")
 
 mode = st.sidebar.radio("Acción", ["Iniciar sesión", "Registrar usuario"])
 with st.sidebar.form("auth_form"):
-    email = st.text_input("Correo electrónico")
+    email_input = st.text_input("Correo electrónico")
     password = st.text_input("Contraseña", type="password")
     submitted = st.form_submit_button("Continuar")
 
     if submitted:
-        if not email or not password:
+        if not email_input or not password:
             st.sidebar.error("Completá email y contraseña.")
         elif mode == "Registrar usuario":
-            r = sign_up(email, password)
+            r = sign_up(email_input, password)
             if "error" in r:
                 st.sidebar.error(r["error"]["message"])
             else:
                 store_session(r)
                 uid = r["localId"]
+                # crea doc users/{uid}
                 firestore_request("PATCH", f"users/{uid}", {
                     "fields": {
-                        "email": {"stringValue": email},
+                        "email": {"stringValue": email_input},
                         "plan": {"stringValue": "free"},
                         "fecha_registro": {"integerValue": int(time.time())}
                     }
                 })
                 st.sidebar.success("✅ Usuario creado con plan FREE.")
         else:
-            r = sign_in(email, password)
+            r = sign_in(email_input, password)
             if "error" in r:
                 st.sidebar.error(r["error"]["message"])
             else:
                 store_session(r)
                 st.sidebar.success(f"Bienvenido {r.get('email')}")
 
+# Reset password desde el lateral (para el correo ingresado en el form)
 if st.sidebar.button("🔑 Restaurar contraseña"):
-    if email:
-        if reset_password(email):
+    if email_input:
+        if reset_password(email_input):
             st.sidebar.success("📧 Correo de recuperación enviado.")
         else:
             st.sidebar.error("Error al enviar el correo.")
@@ -132,39 +194,16 @@ if "auth" not in st.session_state:
     st.stop()
 
 uid = st.session_state["auth"]["uid"]
-email = st.session_state["auth"]["email"]
+logged_email = st.session_state["auth"]["email"]
 
 # =====================================
 # ADMIN CHECK
 # =====================================
-is_admin = email == st.secrets["ADMIN"]["email"]
-
+is_admin = (logged_email == st.secrets["ADMIN"]["email"])
 if is_admin:
     st.sidebar.success("👑 Modo administrador activo")
 else:
-    st.sidebar.info(f"Usuario: {email}")
-
-# =====================================
-# FUNCIONES DE ADMIN
-# =====================================
-def update_plan(uid, nuevo_plan):
-    """Actualiza el plan sin borrar el email ni otros campos."""
-    doc = firestore_request("GET", f"users/{uid}")
-    if not doc or "fields" not in doc:
-        st.error(f"⚠️ No se encontró el documento del usuario {uid}")
-        return False
-
-    fields = doc["fields"]
-    email = fields.get("email", {}).get("stringValue", "")
-    data = {
-        "fields": {
-            "email": {"stringValue": email},
-            "plan": {"stringValue": nuevo_plan},
-            "fecha_registro": fields.get("fecha_registro", {"integerValue": int(time.time())})
-        }
-    }
-    firestore_request("PATCH", f"users/{uid}", data)
-    return True
+    st.sidebar.info(f"Usuario: {logged_email}")
 
 # =====================================
 # PANEL ADMINISTRADOR
@@ -172,55 +211,61 @@ def update_plan(uid, nuevo_plan):
 if is_admin:
     st.header("👥 Panel de administración de usuarios")
 
-    res = firestore_request("GET", "users")
-    if not res or "documents" not in res:
-        st.warning("No se encontraron usuarios.")
-    else:
-        users = []
-        for doc in res["documents"]:
-            f = doc["fields"]
-            users.append({
-                "uid": doc["name"].split("/")[-1],
-                "email": f.get("email", {}).get("stringValue", ""),
-                "plan": f.get("plan", {}).get("stringValue", "free"),
-                "fecha": datetime.fromtimestamp(int(f.get("fecha_registro", {}).get("integerValue", "0"))).strftime("%Y-%m-%d")
-            })
+    # 1) Trae TODOS los usuarios de Auth (siempre tienen email)
+    auth_users = list_auth_users()  # [{uid, email}, ...]
+    if not auth_users:
+        st.warning("No hay usuarios en Firebase Auth.")
+        st.stop()
 
-        df_users = pd.DataFrame(users)
-        st.dataframe(df_users, use_container_width=True)
+    # 2) Cruza con Firestore: asegura doc, corrige email faltante y obtiene plan
+    merged = []
+    for u in auth_users:
+        fields = ensure_user_doc(u["uid"], u["email"])
+        plan = fields.get("plan", {}).get("stringValue", "free")
+        merged.append({
+            "uid": u["uid"],
+            "email": u["email"],
+            "plan": plan,
+            "fecha": datetime.fromtimestamp(int(fields.get("fecha_registro", {}).get("integerValue", "0"))).strftime("%Y-%m-%d") if "fecha_registro" in fields else "-"
+        })
 
-        for user in users:
-            c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 1])
-            with c1:
-                st.markdown(f"**{user['email']}** — Plan: `{user['plan']}`")
-            with c2:
-                if st.button("🪙 Free", key=f"free_{user['uid']}"):
-                    update_plan(user["uid"], "free")
-                    st.rerun()
-            with c3:
-                if st.button("🚀 Pro", key=f"pro_{user['uid']}"):
-                    update_plan(user["uid"], "pro")
-                    st.rerun()
-            with c4:
-                if st.button("💎 Premium", key=f"prem_{user['uid']}"):
-                    update_plan(user["uid"], "premium")
-                    st.rerun()
-            with c5:
-                if st.button("🔑 Reset", key=f"reset_{user['uid']}"):
-                    if reset_password(user["email"]):
-                        st.success(f"📧 Link enviado a {user['email']}")
-                    else:
-                        st.error(f"No se pudo enviar reset a {user['email']}")
+    # 3) Tabla
+    df_users = pd.DataFrame(merged).sort_values("email")
+    st.dataframe(df_users, use_container_width=True)
+
+    # 4) Controles por usuario
+    st.markdown("### Cambiar plan / Reset contraseña")
+    for user in merged:
+        c1, c2, c3, c4, c5 = st.columns([3, 1, 1, 1, 1])
+        with c1:
+            st.markdown(f"**{user['email']}** — Plan: `{user['plan']}` — UID: `{user['uid']}`")
+        with c2:
+            if st.button("🪙 Free", key=f"free_{user['uid']}"):
+                update_plan(user["uid"], "free")
+                st.rerun()
+        with c3:
+            if st.button("🚀 Pro", key=f"pro_{user['uid']}"):
+                update_plan(user["uid"], "pro")
+                st.rerun()
+        with c4:
+            if st.button("💎 Premium", key=f"prem_{user['uid']}"):
+                update_plan(user["uid"], "premium")
+                st.rerun()
+        with c5:
+            # reset desde admin usando email de Auth (siempre presente)
+            if st.button("🔑 Reset", key=f"reset_{user['uid']}"):
+                if user["email"] and reset_password(user["email"]):
+                    st.success(f"📧 Link enviado a {user['email']}")
+                else:
+                    st.error(f"No se pudo enviar reset a {user['email'] or '(sin email)'}")
 
 # =====================================
 # PANEL DE USUARIO NORMAL
 # =====================================
 else:
     st.header("🌱 Panel de usuario")
-    r = firestore_request("GET", f"users/{uid}")
-    plan = "free"
-    if r and "fields" in r:
-        plan = r["fields"].get("plan", {}).get("stringValue", "free")
-
+    # asegura doc del usuario logueado (autocuración si falta email / plan)
+    fields = ensure_user_doc(uid, logged_email)
+    plan = fields.get("plan", {}).get("stringValue", "free")
     st.info(f"Tu plan actual es: **{plan.upper()}**")
     st.write("🔹 Aquí podrás ver tus indicadores financieros y técnicos según el plan.")
