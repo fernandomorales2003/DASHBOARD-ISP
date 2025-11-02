@@ -37,16 +37,23 @@ def firestore_request(method, path, data=None, params=None):
             r = requests.post(url, headers=headers, json=data, timeout=10)
         else:
             return None
+
+        # ✅ Manejo del 404 con aviso informativo
+        if r.status_code == 404:
+            st.info(f"🆕 Creando registro Firestore para usuario {path.split('/')[-1]}")
+            return None
+
         if r.status_code not in (200, 201):
             st.error(f"❌ Firestore error {r.status_code}: {r.text}")
             return None
         return r.json()
+
     except Exception as e:
         st.error(f"❌ Error de conexión Firestore REST: {e}")
         return None
 
 # =====================================
-# FIREBASE AUTH REST (para login/registro y reset)
+# FIREBASE AUTH REST
 # =====================================
 def endpoints():
     api_key = st.secrets["FIREBASE_WEB"]["apiKey"]
@@ -82,13 +89,13 @@ def store_session(res):
     }
 
 # =====================================
-# HELPERS ADMIN: AUTH + USERS MERGE
+# HELPERS ADMIN
 # =====================================
 def list_auth_users():
-    """Devuelve lista de dicts con uid y email desde Firebase Auth (no Firestore)."""
+    """Devuelve lista de dicts con uid y email desde Firebase Auth."""
     init_firebase_admin()
     out = []
-    page = auth.list_users()  # primera página
+    page = auth.list_users()
     while page:
         for u in page.users:
             out.append({"uid": u.uid, "email": u.email or ""})
@@ -96,15 +103,14 @@ def list_auth_users():
     return out
 
 def get_user_doc(uid):
-    """Lee users/{uid} de Firestore y retorna fields o None."""
+    """Lee users/{uid} de Firestore."""
     r = firestore_request("GET", f"users/{uid}")
     return r.get("fields") if (r and "fields" in r) else None
 
 def ensure_user_doc(uid, email):
-    """Asegura que exista users/{uid} con email y plan por defecto si falta."""
+    """Asegura que exista users/{uid} con email y plan free."""
     fields = get_user_doc(uid)
     if not fields:
-        # crear doc mínimo
         firestore_request("PATCH", f"users/{uid}", {
             "fields": {
                 "email": {"stringValue": email or ""},
@@ -113,20 +119,18 @@ def ensure_user_doc(uid, email):
             }
         })
         return {"email": {"stringValue": email or ""}, "plan": {"stringValue": "free"}}
-    # si existe pero le falta email, lo corrige
     if "email" not in fields or not fields["email"].get("stringValue", ""):
         fields["email"] = {"stringValue": email or ""}
         firestore_request("PATCH", f"users/{uid}", {"fields": fields})
     return fields
 
 def update_plan(uid, nuevo_plan):
-    """Actualiza el plan preservando email (tomado desde Firestore o Auth si falta)."""
+    """Actualiza el plan preservando el email."""
     fields = get_user_doc(uid)
     email = ""
     if fields and "email" in fields:
         email = fields["email"].get("stringValue", "")
     if not email:
-        # fallback a Auth
         try:
             u = auth.get_user(uid)
             email = u.email or ""
@@ -143,7 +147,7 @@ def update_plan(uid, nuevo_plan):
     return True
 
 # =====================================
-# LOGIN / REGISTRO UI
+# LOGIN / REGISTRO
 # =====================================
 st.title("📊 Dashboard ISP — Acceso")
 
@@ -163,7 +167,6 @@ with st.sidebar.form("auth_form"):
             else:
                 store_session(r)
                 uid = r["localId"]
-                # crea doc users/{uid}
                 firestore_request("PATCH", f"users/{uid}", {
                     "fields": {
                         "email": {"stringValue": email_input},
@@ -180,7 +183,7 @@ with st.sidebar.form("auth_form"):
                 store_session(r)
                 st.sidebar.success(f"Bienvenido {r.get('email')}")
 
-# Reset password desde el lateral (para el correo ingresado en el form)
+# Reset password
 if st.sidebar.button("🔑 Restaurar contraseña"):
     if email_input:
         if reset_password(email_input):
@@ -211,13 +214,11 @@ else:
 if is_admin:
     st.header("👥 Panel de administración de usuarios")
 
-    # 1) Trae TODOS los usuarios de Auth (siempre tienen email)
-    auth_users = list_auth_users()  # [{uid, email}, ...]
+    auth_users = list_auth_users()
     if not auth_users:
         st.warning("No hay usuarios en Firebase Auth.")
         st.stop()
 
-    # 2) Cruza con Firestore: asegura doc, corrige email faltante y obtiene plan
     merged = []
     for u in auth_users:
         fields = ensure_user_doc(u["uid"], u["email"])
@@ -229,11 +230,9 @@ if is_admin:
             "fecha": datetime.fromtimestamp(int(fields.get("fecha_registro", {}).get("integerValue", "0"))).strftime("%Y-%m-%d") if "fecha_registro" in fields else "-"
         })
 
-    # 3) Tabla
     df_users = pd.DataFrame(merged).sort_values("email")
     st.dataframe(df_users, use_container_width=True)
 
-    # 4) Controles por usuario
     st.markdown("### Cambiar plan / Reset contraseña")
     for user in merged:
         c1, c2, c3, c4, c5 = st.columns([3, 1, 1, 1, 1])
@@ -252,7 +251,6 @@ if is_admin:
                 update_plan(user["uid"], "premium")
                 st.rerun()
         with c5:
-            # reset desde admin usando email de Auth (siempre presente)
             if st.button("🔑 Reset", key=f"reset_{user['uid']}"):
                 if user["email"] and reset_password(user["email"]):
                     st.success(f"📧 Link enviado a {user['email']}")
@@ -264,7 +262,6 @@ if is_admin:
 # =====================================
 else:
     st.header("🌱 Panel de usuario")
-    # asegura doc del usuario logueado (autocuración si falta email / plan)
     fields = ensure_user_doc(uid, logged_email)
     plan = fields.get("plan", {}).get("stringValue", "free")
     st.info(f"Tu plan actual es: **{plan.upper()}**")
