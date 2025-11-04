@@ -191,8 +191,11 @@ def mostrar_dashboard_free(uid):
 
     df["ltv"] = (df["arpu"] * (df["mc"] / 100)) / (df["churn"] / 100)
     df["ratio_ltv_cac"] = df["ltv"] / df["cac"]
+    df["ebitda"] = df["clientes"] * df["arpu"] * (df["mc"] / 100)
+    df["margen_ebitda"] = (df["ebitda"] / (df["clientes"] * df["arpu"])) * 100
     last = df.iloc[-1]
 
+    # Indicadores principales
     st.subheader("📊 Indicadores actuales")
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Clientes", f"{last['clientes']:,}")
@@ -200,75 +203,46 @@ def mostrar_dashboard_free(uid):
     c3.metric("CHURN", f"{last['churn']:.2f}%")
     c4.metric("MC", f"{last['mc']:.1f}%")
     c5.metric("CAC", f"${last['cac']:.2f}")
-    c6.metric("LTV/CAC", f"{last['ratio_ltv_cac']:.1f}x")
+    c6.metric("Margen EBITDA", f"{last['margen_ebitda']:.1f}%")
 
-    # 🔮 Proyecciones precisas
-    st.subheader("🔮 Proyecciones de crecimiento (precisas mes a mes)")
-    cols = st.columns(3)
-    for label, months in [("6 meses", 6), ("12 meses", 12), ("24 meses", 24)]:
-        if cols[["6 meses", "12 meses", "24 meses"].index(label)].button(f"📆 {label}"):
-            churn_dec = last["churn"] / 100
-            mc_dec = last["mc"] / 100
-            clientes_ini = last["clientes"]
+    # 📈 Evolución del EBITDA
+    st.subheader("📈 Evolución del EBITDA (USD)")
+    st.altair_chart(
+        alt.Chart(df).mark_line(point=True, color="#00cc83").encode(
+            x="period:N", 
+            y=alt.Y("ebitda:Q", title="EBITDA (USD)"),
+            tooltip=["period", "clientes", "arpu", "mc", "ebitda"]
+        ).properties(title="Rentabilidad operativa mensual del ISP"),
+        use_container_width=True
+    )
 
-            clientes_mes = clientes_ini
-            ingresos_mensuales, ingresos_netos_mensuales, clientes_hist = [], [], []
-
-            for _ in range(months):
-                ingreso_mes = clientes_mes * last["arpu"]
-                ingreso_neto_mes = ingreso_mes * mc_dec
-                ingresos_mensuales.append(ingreso_mes)
-                ingresos_netos_mensuales.append(ingreso_neto_mes)
-                clientes_hist.append(clientes_mes)
-                clientes_mes *= (1 - churn_dec)
-
-            clientes_fin = clientes_hist[-1]
-            ingresos = sum(ingresos_mensuales)
-            ingresos_netos = sum(ingresos_netos_mensuales)
-            clientes_perdidos = clientes_ini - clientes_fin
-
-            perdida_bruta = clientes_perdidos * last["arpu"] * months
-            perdida_neta = perdida_bruta * mc_dec
-
-            st.markdown(f"### 📅 Proyección a {label}")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Clientes finales", f"{clientes_fin:,.0f}", f"-{clientes_perdidos:,.0f}", delta_color="inverse")
-            c2.metric("Ingresos brutos", f"${ingresos:,.0f}", f"-${perdida_bruta:,.0f}", delta_color="inverse")
-            c3.metric("Ingresos netos", f"${ingresos_netos:,.0f}", f"-${perdida_neta:,.0f}", delta_color="inverse")
-
-            # 📊 Gráfico de evolución mensual
-            df_evo = pd.DataFrame({
-                "Mes": list(range(1, months + 1)),
-                "Clientes activos": clientes_hist,
-                "Ingresos brutos": ingresos_mensuales,
-                "Ingresos netos": ingresos_netos_mensuales
-            })
-
-            base = alt.Chart(df_evo).encode(x="Mes:Q")
-
-            line_clientes = base.mark_line(color="#1f77b4", point=True, strokeWidth=2).encode(
-                y=alt.Y("Clientes activos:Q", title="Clientes activos"),
-                tooltip=["Mes", "Clientes activos"]
-            )
-
-            line_ingresos = base.mark_line(color="#2ca02c", point=True, strokeWidth=2, strokeDash=[4, 3]).encode(
-                y=alt.Y("Ingresos brutos:Q", title="Ingresos (USD)"),
-                tooltip=["Mes", "Ingresos brutos"]
-            )
-
-            line_netos = base.mark_line(color="#ff7f0e", point=True, strokeWidth=2).encode(
-                y=alt.Y("Ingresos netos:Q"),
-                tooltip=["Mes", "Ingresos netos"]
-            )
-
-            chart = alt.layer(line_clientes, line_ingresos, line_netos).resolve_scale(
-                y='independent'
-            ).properties(
-                title=f"Evolución mensual de clientes e ingresos — {label}",
-                width='container'
-            )
-
-            st.altair_chart(chart, use_container_width=True)
+    # 📋 Tabla resumen mensual
+    st.subheader("📋 Tabla resumen mensual")
+    st.dataframe(
+        df[["period", "clientes", "arpu", "churn", "mc", "cac", "ltv", "ratio_ltv_cac", "ebitda", "margen_ebitda"]].rename(columns={
+            "period": "Período",
+            "clientes": "Clientes",
+            "arpu": "ARPU (USD)",
+            "churn": "CHURN (%)",
+            "mc": "MC (%)",
+            "cac": "CAC (USD)",
+            "ltv": "LTV (USD)",
+            "ratio_ltv_cac": "LTV/CAC",
+            "ebitda": "EBITDA (USD)",
+            "margen_ebitda": "Margen EBITDA (%)"
+        }).style.format({
+            "Clientes": "{:,.0f}",
+            "ARPU (USD)": "{:.2f}",
+            "CHURN (%)": "{:.2f}",
+            "MC (%)": "{:.1f}",
+            "CAC (USD)": "{:.2f}",
+            "LTV (USD)": "{:.0f}",
+            "LTV/CAC": "{:.2f}",
+            "EBITDA (USD)": "{:.0f}",
+            "Margen EBITDA (%)": "{:.1f}"
+        }),
+        use_container_width=True
+    )
 
 # =====================================
 # LOGIN / REGISTRO
