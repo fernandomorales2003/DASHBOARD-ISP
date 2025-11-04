@@ -132,6 +132,13 @@ def update_plan(uid, nuevo_plan):
 # =====================================
 def save_metrics(uid, year, month, arpu, churn, mc):
     period = f"{year}-{month:02d}"
+    path = f"tenants/{uid}/metrics/{period}"
+
+    # Chequear si ya existe el período
+    existing = firestore_request("GET", path)
+    if existing and "fields" in existing:
+        st.info(f"ℹ️ Reescribiendo datos del período {period} (ya existía en Firestore).")
+
     data = {
         "fields": {
             "period": {"stringValue": period},
@@ -141,7 +148,7 @@ def save_metrics(uid, year, month, arpu, churn, mc):
             "created_at": {"integerValue": int(time.time())}
         }
     }
-    firestore_request("PATCH", f"tenants/{uid}/metrics/{period}", data)
+    firestore_request("PATCH", path, data)
 
 def load_metrics(uid):
     r = firestore_request("GET", f"tenants/{uid}/metrics")
@@ -179,9 +186,16 @@ def mostrar_dashboard_free(uid):
     with c5:
         mc = st.number_input("MC (%)", 1.0, 100.0, 60.0, 0.1)
 
+    # 🚫 Validar que no se pueda cargar un mes futuro
+    selected_date = datetime(year, month, 1)
+    current_date = datetime(now.year, now.month, 1)
+    if selected_date > current_date:
+        st.error("⚠️ No se pueden cargar datos de meses futuros.")
+        st.stop()
+
     if st.button("💾 Guardar mes"):
         save_metrics(uid, year, month, arpu, churn, mc)
-        st.success(f"✅ Datos guardados ({year}-{month:02d})")
+        st.success(f"✅ Datos guardados o actualizados correctamente ({year}-{month:02d})")
         st.rerun()
 
     df = load_metrics(uid)
