@@ -266,11 +266,54 @@ def mostrar_dashboard_free(uid):
             clientes_prom = (clientes_ini + clientes_fin) / 2
             ingresos = clientes_prom * last["arpu"] * months
             ingresos_netos = ingresos * mc_dec
+
+            # Cálculos adicionales
+            perdida_mensual_cliente = last["arpu"] * (last["mc"] / 100)
+            clientes_perdidos = clientes_ini - clientes_fin
+            perdida_total = clientes_perdidos * perdida_mensual_cliente * months
+            arpu_proyectado = ingresos / clientes_prom / months
+
             st.markdown(f"### 📅 Proyección a {label}")
             c1, c2, c3 = st.columns(3)
             c1.metric("Clientes finales", f"{clientes_fin:,.0f}")
             c2.metric("Ingresos brutos", f"${ingresos:,.0f}")
             c3.metric("Ingresos netos", f"${ingresos_netos:,.0f}")
+
+            st.markdown("#### 📊 Indicadores complementarios")
+            c4, c5, c6 = st.columns(3)
+            c4.metric("ARPU proyectado", f"${arpu_proyectado:,.2f}")
+            c5.metric("Pérdida mensual por cliente", f"${perdida_mensual_cliente:,.2f}")
+            c6.metric(f"Pérdida total en {label}", f"${perdida_total:,.0f}")
+
+            # === Gráfico combinado de pérdidas ===
+            meses = list(range(1, months + 1))
+            clientes_series = [clientes_ini * ((1 - churn_dec) ** m) for m in meses]
+            clientes_perdidos_series = [clientes_ini - c for c in clientes_series]
+            perdidas_series = [p * perdida_mensual_cliente for p in clientes_perdidos_series]
+
+            df_proj = pd.DataFrame({
+                "Mes": meses,
+                "Clientes perdidos": clientes_perdidos_series,
+                "Ingresos perdidos": perdidas_series
+            })
+
+            st.markdown("#### 📉 Evolución de pérdidas de clientes e ingresos")
+            chart = (
+                alt.Chart(df_proj)
+                .transform_fold(
+                    ["Clientes perdidos", "Ingresos perdidos"],
+                    as_=["Indicador", "Valor"]
+                )
+                .mark_line(point=True)
+                .encode(
+                    x=alt.X("Mes:Q"),
+                    y=alt.Y("Valor:Q"),
+                    color="Indicador:N",
+                    tooltip=["Mes", "Indicador", "Valor"]
+                )
+                .properties(title="Evolución de pérdidas acumuladas")
+            )
+            st.altair_chart(chart, use_container_width=True)
 
 # =====================================
 # LOGIN / REGISTRO
