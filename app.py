@@ -130,7 +130,7 @@ def update_plan(uid, nuevo_plan):
 # =====================================
 # MÉTRICAS
 # =====================================
-def save_metrics(uid, year, month, arpu, churn, mc, cac):
+def save_metrics(uid, year, month, clientes, arpu, churn, mc, cac):
     period = f"{year}-{month:02d}"
     path = f"tenants/{uid}/metrics/{period}"
 
@@ -141,6 +141,7 @@ def save_metrics(uid, year, month, arpu, churn, mc, cac):
     data = {
         "fields": {
             "period": {"stringValue": period},
+            "clientes": {"integerValue": int(clientes)},
             "arpu": {"doubleValue": arpu},
             "churn": {"doubleValue": churn},
             "mc": {"doubleValue": mc},
@@ -159,6 +160,7 @@ def load_metrics(uid):
         f = doc["fields"]
         rows.append({
             "period": f.get("period", {}).get("stringValue", "N/A"),
+            "clientes": int(f.get("clientes", {}).get("integerValue", 0)),
             "arpu": float(f.get("arpu", {}).get("doubleValue", 0)),
             "churn": float(f.get("churn", {}).get("doubleValue", 0)),
             "mc": float(f.get("mc", {}).get("doubleValue", 0)),
@@ -175,18 +177,20 @@ def mostrar_dashboard_free(uid):
 
     now = datetime.now()
     st.subheader("📅 Carga mensual")
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
     with c1:
         year = st.selectbox("Año", list(range(2018, now.year + 1)), index=now.year - 2018)
     with c2:
         month = st.selectbox("Mes", list(range(1, 13)), index=now.month - 1)
     with c3:
-        arpu = st.number_input("ARPU (USD)", 0.0, 1000.0, 16.0, 0.1)
+        clientes = st.number_input("Clientes", 0, 200000, 1000, 10)
     with c4:
-        churn = st.number_input("CHURN (%)", 0.01, 50.0, 2.0, 0.01)
+        arpu = st.number_input("ARPU (USD)", 0.0, 1000.0, 16.0, 0.1)
     with c5:
-        mc = st.number_input("MC (%)", 1.0, 100.0, 60.0, 0.1)
+        churn = st.number_input("CHURN (%)", 0.01, 50.0, 2.0, 0.01)
     with c6:
+        mc = st.number_input("MC (%)", 1.0, 100.0, 60.0, 0.1)
+    with c7:
         cac = st.number_input("CAC (USD)", 0.0, 1000.0, 10.0, 0.1)
 
     selected_date = datetime(year, month, 1)
@@ -196,7 +200,7 @@ def mostrar_dashboard_free(uid):
         st.stop()
 
     if st.button("💾 Guardar mes"):
-        save_metrics(uid, year, month, arpu, churn, mc, cac)
+        save_metrics(uid, year, month, clientes, arpu, churn, mc, cac)
         st.success(f"✅ Datos guardados o actualizados correctamente ({year}-{month:02d})")
         st.rerun()
 
@@ -210,17 +214,18 @@ def mostrar_dashboard_free(uid):
     last = df.iloc[-1]
 
     st.subheader("📊 Indicadores actuales")
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("ARPU", f"${last['arpu']:.2f}")
-    c2.metric("CHURN", f"{last['churn']:.2f}%")
-    c3.metric("MC", f"{last['mc']:.1f}%")
-    c4.metric("CAC", f"${last['cac']:.2f}")
-    c5.metric("LTV/CAC", f"{last['ratio_ltv_cac']:.1f}x")
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("Clientes", f"{last['clientes']:,}")
+    c2.metric("ARPU", f"${last['arpu']:.2f}")
+    c3.metric("CHURN", f"{last['churn']:.2f}%")
+    c4.metric("MC", f"{last['mc']:.1f}%")
+    c5.metric("CAC", f"${last['cac']:.2f}")
+    c6.metric("LTV/CAC", f"{last['ratio_ltv_cac']:.1f}x")
 
     st.subheader("📈 Evolución del LTV")
     st.altair_chart(
         alt.Chart(df).mark_line(point=True).encode(
-            x="period:N", y="ltv:Q", tooltip=["arpu", "churn", "mc", "cac", "ltv", "ratio_ltv_cac"]
+            x="period:N", y="ltv:Q", tooltip=["clientes", "arpu", "churn", "mc", "cac", "ltv", "ratio_ltv_cac"]
         ).properties(title="Evolución mensual del LTV"),
         use_container_width=True
     )
@@ -228,8 +233,9 @@ def mostrar_dashboard_free(uid):
     # 📋 Tabla resumen
     st.subheader("📋 Tabla resumen mensual")
     st.dataframe(
-        df[["period", "arpu", "churn", "mc", "cac", "ltv", "ratio_ltv_cac"]].rename(columns={
+        df[["period", "clientes", "arpu", "churn", "mc", "cac", "ltv", "ratio_ltv_cac"]].rename(columns={
             "period": "Período",
+            "clientes": "Clientes",
             "arpu": "ARPU (USD)",
             "churn": "CHURN (%)",
             "mc": "MC (%)",
@@ -237,6 +243,7 @@ def mostrar_dashboard_free(uid):
             "ltv": "LTV (USD)",
             "ratio_ltv_cac": "LTV/CAC"
         }).style.format({
+            "Clientes": "{:,.0f}",
             "ARPU (USD)": "{:.2f}",
             "CHURN (%)": "{:.2f}",
             "MC (%)": "{:.1f}",
@@ -249,14 +256,14 @@ def mostrar_dashboard_free(uid):
 
     # 🔮 Proyecciones
     st.subheader("🔮 Proyecciones de crecimiento")
-    clientes = st.number_input("Clientes actuales", 1, 200000, 1000, 10)
     cols = st.columns(3)
     for label, months in [("6 meses", 6), ("12 meses", 12), ("24 meses", 24)]:
         if cols[["6 meses", "12 meses", "24 meses"].index(label)].button(f"📆 {label}"):
             churn_dec = last["churn"] / 100
             mc_dec = last["mc"] / 100
-            clientes_fin = clientes * ((1 - churn_dec) ** months)
-            clientes_prom = (clientes + clientes_fin) / 2
+            clientes_ini = last["clientes"]
+            clientes_fin = clientes_ini * ((1 - churn_dec) ** months)
+            clientes_prom = (clientes_ini + clientes_fin) / 2
             ingresos = clientes_prom * last["arpu"] * months
             ingresos_netos = ingresos * mc_dec
             st.markdown(f"### 📅 Proyección a {label}")
