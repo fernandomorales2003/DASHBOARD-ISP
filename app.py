@@ -38,7 +38,6 @@ def firestore_request(method, path, data=None, params=None):
             r = requests.post(url, headers=headers, json=data, timeout=10)
         else:
             return None
-
         if r.status_code == 404:
             st.info(f"🆕 Creando registro Firestore para usuario {path.split('/')[-1]}")
             return None
@@ -143,7 +142,6 @@ def update_plan(uid, nuevo_plan):
 # =====================================
 def mostrar_dashboard_free():
     st.header("📊 Dashboard ISP — Versión FREE")
-
     st.markdown("""
     En esta versión podés visualizar el **impacto de tus indicadores principales**:
     - **ARPU:** ingreso promedio por cliente  
@@ -153,7 +151,6 @@ def mostrar_dashboard_free():
     """)
 
     st.sidebar.header("⚙️ Parámetros del mes actual")
-
     col1, col2, col3 = st.sidebar.columns(3)
     with col1:
         arpu = st.number_input("ARPU (USD)", 0.0, 1000.0, 16.0, 0.1)
@@ -161,7 +158,6 @@ def mostrar_dashboard_free():
         churn = st.number_input("CHURN (%)", 0.01, 50.0, 2.0, 0.01)
     with col3:
         mc = st.number_input("MC (%)", 1.0, 100.0, 60.0, 0.1)
-
     ltv = (arpu * (mc / 100)) / (churn / 100)
     st.sidebar.metric("💰 LTV (Valor de Vida)", f"${ltv:,.0f}")
 
@@ -173,7 +169,6 @@ def mostrar_dashboard_free():
     c4.metric("LTV", f"${ltv:,.0f}")
 
     st.markdown("### 🔮 Proyecciones de negocio")
-
     col1, col2, col3 = st.columns(3)
     horizonte = None
     if col1.button("📆 Proyectar 6 meses"):
@@ -187,13 +182,11 @@ def mostrar_dashboard_free():
         clientes_ini = 1000
         churn_dec = churn / 100
         mc_dec = mc / 100
-
         clientes_fin = clientes_ini * ((1 - churn_dec) ** horizonte)
         clientes_prom = (clientes_ini + clientes_fin) / 2
         ingresos_brutos = clientes_prom * arpu * horizonte
         ingresos_netos = ingresos_brutos * mc_dec
         vida_cliente_meses = 1 / churn_dec
-
         st.markdown(f"### 🧮 Proyección a {horizonte} meses")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Clientes finales", f"{clientes_fin:,.0f}", f"-{(1 - clientes_fin/clientes_ini)*100:.1f}%")
@@ -205,10 +198,8 @@ def mostrar_dashboard_free():
         clientes_mes = [clientes_ini * ((1 - churn_dec) ** m) for m in meses]
         ingresos_mes = [clientes_mes[m] * arpu for m in meses]
         ltv_mes = [(arpu * mc_dec) / (churn / 100) for m in meses]
-
         df_proj = pd.DataFrame({"Mes": meses, "Clientes": clientes_mes, "Ingresos": ingresos_mes, "LTV": ltv_mes})
         c1, c2, c3 = st.columns(3)
-
         c1.altair_chart(alt.Chart(df_proj).mark_line(point=True, color="#4fb4ca")
             .encode(x="Mes:Q", y="Clientes:Q").properties(title="Evolución de Clientes"), use_container_width=True)
         c2.altair_chart(alt.Chart(df_proj).mark_line(point=True, color="#00cc83")
@@ -226,8 +217,7 @@ def mostrar_dashboard_free():
         alt.Chart(iceberg_data).mark_bar().encode(
             x=alt.X("Componente:N", sort=None),
             y="Valor:Q",
-            color=alt.condition(alt.datum.Tipo == "Visible",
-                alt.value("#4fb4ca"), alt.value("#a8c3cf")),
+            color=alt.condition(alt.datum.Tipo == "Visible", alt.value("#4fb4ca"), alt.value("#a8c3cf")),
             tooltip=["Componente", "Valor"]
         ).properties(title="Impacto del CHURN y MC sobre el LTV (Analogia ICEBERG)"),
         use_container_width=True
@@ -244,7 +234,6 @@ with st.sidebar.form("auth_form"):
     email_input = st.text_input("Correo electrónico")
     password = st.text_input("Contraseña", type="password")
     submitted = st.form_submit_button("Continuar")
-
     if submitted:
         if not email_input or not password:
             st.sidebar.error("Completá email y contraseña.")
@@ -271,6 +260,7 @@ with st.sidebar.form("auth_form"):
                 store_session(r)
                 st.sidebar.success(f"Bienvenido {r.get('email')}")
 
+# botón reset lateral
 if st.sidebar.button("🔑 Restaurar contraseña"):
     if email_input:
         if reset_password(email_input):
@@ -285,7 +275,6 @@ if "auth" not in st.session_state:
 
 uid = st.session_state["auth"]["uid"]
 logged_email = st.session_state["auth"]["email"]
-
 is_admin = (logged_email == st.secrets["ADMIN"]["email"])
 if is_admin:
     st.sidebar.success("👑 Modo administrador activo")
@@ -311,6 +300,31 @@ if is_admin:
         })
     df_users = pd.DataFrame(merged).sort_values("email")
     st.dataframe(df_users, use_container_width=True)
+
+    st.markdown("### Cambiar plan / Reset contraseña")
+    for user in merged:
+        c1, c2, c3, c4, c5 = st.columns([3, 1, 1, 1, 1])
+        with c1:
+            st.markdown(f"**{user['email']}** — Plan: `{user['plan']}` — UID: `{user['uid']}`")
+        with c2:
+            if st.button("🪙 Free", key=f"free_{user['uid']}"):
+                update_plan(user["uid"], "free")
+                st.rerun()
+        with c3:
+            if st.button("🚀 Pro", key=f"pro_{user['uid']}"):
+                update_plan(user["uid"], "pro")
+                st.rerun()
+        with c4:
+            if st.button("💎 Premium", key=f"prem_{user['uid']}"):
+                update_plan(user["uid"], "premium")
+                st.rerun()
+        with c5:
+            if st.button("🔑 Reset", key=f"reset_{user['uid']}"):
+                if user["email"] and reset_password(user["email"]):
+                    st.success(f"📧 Link enviado a {user['email']}")
+                else:
+                    st.error(f"No se pudo enviar reset a {user['email'] or '(sin email)'}")
+
 else:
     fields = ensure_user_doc(uid, logged_email)
     plan = fields.get("plan", {}).get("stringValue", "free")
