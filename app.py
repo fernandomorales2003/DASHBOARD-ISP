@@ -38,7 +38,6 @@ def firestore_request(method, path, data=None, params=None):
             r = requests.post(url, headers=headers, json=data, timeout=10)
         else:
             return None
-
         if r.status_code == 404:
             return None
         if r.status_code not in (200, 201):
@@ -131,7 +130,7 @@ def update_plan(uid, nuevo_plan):
 # =====================================
 # MÉTRICAS
 # =====================================
-def save_metrics(uid, year, month, arpu, churn, mc):
+def save_metrics(uid, year, month, arpu, churn, mc, clientes):
     period = f"{year}-{month:02d}"
     data = {
         "fields": {
@@ -139,6 +138,7 @@ def save_metrics(uid, year, month, arpu, churn, mc):
             "arpu": {"doubleValue": arpu},
             "churn": {"doubleValue": churn},
             "mc": {"doubleValue": mc},
+            "clientes": {"integerValue": clientes},
             "created_at": {"integerValue": int(time.time())}
         }
     }
@@ -156,6 +156,7 @@ def load_metrics(uid):
             "arpu": float(f["arpu"]["doubleValue"]),
             "churn": float(f["churn"]["doubleValue"]),
             "mc": float(f["mc"]["doubleValue"]),
+            "clientes": int(f["clientes"]["integerValue"]),
         })
     return pd.DataFrame(rows).sort_values("period")
 
@@ -166,17 +167,25 @@ def mostrar_dashboard_free(uid):
     st.header("🌱 Dashboard ISP — Versión FREE")
     st.markdown("Cargá tus métricas mensuales para ver cómo impactan en tu negocio.")
 
-    # ---- Carga de datos ----
+    # ---- Carga en formato columnas ----
     now = datetime.now()
-    year = st.selectbox("Año", list(range(2018, now.year+1)), index=now.year-2018)
-    month = st.selectbox("Mes", list(range(1, 13)), index=now.month-1)
-
-    arpu = st.number_input("ARPU (USD)", 0.0, 1000.0, 16.0, 0.1)
-    churn = st.number_input("CHURN (%)", 0.01, 50.0, 2.0, 0.01)
-    mc = st.number_input("MC (%)", 1.0, 100.0, 60.0, 0.1)
+    st.subheader("📅 Carga mensual")
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    with c1:
+        year = st.selectbox("Año", list(range(2018, now.year + 1)), index=now.year - 2018)
+    with c2:
+        month = st.selectbox("Mes", list(range(1, 13)), index=now.month - 1)
+    with c3:
+        arpu = st.number_input("ARPU (USD)", 0.0, 1000.0, 16.0, 0.1)
+    with c4:
+        churn = st.number_input("CHURN (%)", 0.01, 50.0, 2.0, 0.01)
+    with c5:
+        mc = st.number_input("MC (%)", 1.0, 100.0, 60.0, 0.1)
+    with c6:
+        clientes = st.number_input("Clientes actuales", 1, 200000, 1000, 10)
 
     if st.button("💾 Guardar mes"):
-        save_metrics(uid, year, month, arpu, churn, mc)
+        save_metrics(uid, year, month, arpu, churn, mc, clientes)
         st.success(f"✅ Datos guardados ({year}-{month:02d})")
         st.rerun()
 
@@ -185,7 +194,7 @@ def mostrar_dashboard_free(uid):
         st.warning("Cargá tus primeros datos para ver los resultados.")
         return
 
-    df["ltv"] = (df["arpu"] * (df["mc"]/100)) / (df["churn"]/100)
+    df["ltv"] = (df["arpu"] * (df["mc"] / 100)) / (df["churn"] / 100)
     last = df.iloc[-1]
 
     st.subheader("📊 Indicadores actuales")
@@ -195,26 +204,27 @@ def mostrar_dashboard_free(uid):
     c3.metric("MC", f"{last['mc']:.1f}%")
     c4.metric("LTV", f"${last['ltv']:.0f}")
 
-    st.subheader("📈 Evolución")
-    chart = (
-        alt.Chart(df)
-        .mark_line(point=True)
-        .encode(x="period:N", y="ltv:Q", tooltip=["arpu","churn","mc","ltv"])
-        .properties(title="Evolución del LTV mensual")
+    # ---- Gráfico evolución ----
+    st.subheader("📈 Evolución del LTV")
+    st.altair_chart(
+        alt.Chart(df).mark_line(point=True).encode(
+            x="period:N", y="ltv:Q", tooltip=["arpu", "churn", "mc", "ltv"]
+        ).properties(title="Evolución mensual del LTV"),
+        use_container_width=True
     )
-    st.altair_chart(chart, use_container_width=True)
 
+    # ---- Proyecciones ----
     st.subheader("🔮 Proyecciones")
     cols = st.columns(3)
     for label, months in [("6 meses", 6), ("12 meses", 12), ("24 meses", 24)]:
-        if cols[["6 meses","12 meses","24 meses"].index(label)].button(f"📆 {label}"):
-            churn_dec = last["churn"]/100
-            clientes_ini = 1000
-            clientes_fin = clientes_ini*((1-churn_dec)**months)
-            ingresos = ((clientes_ini+clientes_fin)/2)*last["arpu"]*months
-            ingresos_netos = ingresos*(last["mc"]/100)
+        if cols[["6 meses", "12 meses", "24 meses"].index(label)].button(f"📆 {label}"):
+            churn_dec = last["churn"] / 100
+            clientes_ini = last["clientes"]
+            clientes_fin = clientes_ini * ((1 - churn_dec) ** months)
+            ingresos = ((clientes_ini + clientes_fin) / 2) * last["arpu"] * months
+            ingresos_netos = ingresos * (last["mc"] / 100)
             st.markdown(f"### 📅 Proyección a {label}")
-            c1,c2,c3 = st.columns(3)
+            c1, c2, c3 = st.columns(3)
             c1.metric("Clientes finales", f"{clientes_fin:,.0f}")
             c2.metric("Ingresos brutos", f"${ingresos:,.0f}")
             c3.metric("Ingresos netos", f"${ingresos_netos:,.0f}")
