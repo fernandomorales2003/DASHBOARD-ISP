@@ -71,11 +71,7 @@ def reset_password(email):
         st.error("❌ No se proporcionó email para reset.")
         return False
     r = requests.post(endpoints()["reset"], json={"requestType": "PASSWORD_RESET", "email": email})
-    if r.status_code == 200:
-        return True
-    else:
-        st.error(f"❌ Error Firebase ({r.status_code}): {r.text}")
-        return False
+    return r.status_code == 200
 
 def store_session(res):
     st.session_state["auth"] = {
@@ -117,14 +113,13 @@ def ensure_user_doc(uid, email):
 def update_plan(uid, nuevo_plan):
     fields = get_user_doc(uid)
     email = fields["email"].get("stringValue", "") if fields and "email" in fields else ""
-    data = {
+    firestore_request("PATCH", f"users/{uid}", {
         "fields": {
             "email": {"stringValue": email},
             "plan": {"stringValue": nuevo_plan},
             "fecha_registro": fields.get("fecha_registro", {"integerValue": int(time.time())})
         }
-    }
-    firestore_request("PATCH", f"users/{uid}", data)
+    })
     return True
 
 # =====================================
@@ -132,8 +127,7 @@ def update_plan(uid, nuevo_plan):
 # =====================================
 def save_metrics(uid, year, month, clientes, arpu, churn, mc, cac):
     period = f"{year}-{month:02d}"
-    path = f"tenants/{uid}/metrics/{period}"
-    data = {
+    firestore_request("PATCH", f"tenants/{uid}/metrics/{period}", {
         "fields": {
             "period": {"stringValue": period},
             "clientes": {"integerValue": int(clientes)},
@@ -143,25 +137,24 @@ def save_metrics(uid, year, month, clientes, arpu, churn, mc, cac):
             "cac": {"doubleValue": cac},
             "created_at": {"integerValue": int(time.time())}
         }
-    }
-    firestore_request("PATCH", path, data)
+    })
 
 def load_metrics(uid):
     r = firestore_request("GET", f"tenants/{uid}/metrics")
     if not r or "documents" not in r:
         return pd.DataFrame()
-    rows = []
+    data = []
     for doc in r["documents"]:
         f = doc["fields"]
-        rows.append({
-            "period": f.get("period", {}).get("stringValue", "N/A"),
+        data.append({
+            "period": f["period"]["stringValue"],
             "clientes": int(f.get("clientes", {}).get("integerValue", 0)),
             "arpu": float(f.get("arpu", {}).get("doubleValue", 0)),
             "churn": float(f.get("churn", {}).get("doubleValue", 0)),
             "mc": float(f.get("mc", {}).get("doubleValue", 0)),
             "cac": float(f.get("cac", {}).get("doubleValue", 0))
         })
-    return pd.DataFrame(rows).sort_values("period")
+    return pd.DataFrame(data).sort_values("period")
 
 # =====================================
 # DASHBOARD FREE
@@ -190,12 +183,10 @@ def mostrar_dashboard_free(uid):
         return
 
     df["ltv"] = (df["arpu"] * (df["mc"] / 100)) / (df["churn"] / 100)
-    df["ratio_ltv_cac"] = df["ltv"] / df["cac"]
     df["ebitda"] = df["clientes"] * df["arpu"] * (df["mc"] / 100)
     df["margen_ebitda"] = (df["ebitda"] / (df["clientes"] * df["arpu"])) * 100
     last = df.iloc[-1]
 
-    # Indicadores principales
     st.subheader("📊 Indicadores actuales")
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Clientes", f"{last['clientes']:,}")
@@ -209,7 +200,7 @@ def mostrar_dashboard_free(uid):
     st.subheader("📈 Evolución del EBITDA (USD)")
     st.altair_chart(
         alt.Chart(df).mark_line(point=True, color="#00cc83").encode(
-            x="period:N", 
+            x="period:N",
             y=alt.Y("ebitda:Q", title="EBITDA (USD)"),
             tooltip=["period", "clientes", "arpu", "mc", "ebitda"]
         ).properties(title="Rentabilidad operativa mensual del ISP"),
@@ -219,30 +210,68 @@ def mostrar_dashboard_free(uid):
     # 📋 Tabla resumen mensual
     st.subheader("📋 Tabla resumen mensual")
     st.dataframe(
-        df[["period", "clientes", "arpu", "churn", "mc", "cac", "ltv", "ratio_ltv_cac", "ebitda", "margen_ebitda"]].rename(columns={
-            "period": "Período",
-            "clientes": "Clientes",
-            "arpu": "ARPU (USD)",
-            "churn": "CHURN (%)",
-            "mc": "MC (%)",
-            "cac": "CAC (USD)",
-            "ltv": "LTV (USD)",
-            "ratio_ltv_cac": "LTV/CAC",
-            "ebitda": "EBITDA (USD)",
+        df[["period", "clientes", "arpu", "churn", "mc", "cac", "ltv", "ebitda", "margen_ebitda"]].rename(columns={
+            "period": "Período", "clientes": "Clientes", "arpu": "ARPU (USD)", "churn": "CHURN (%)",
+            "mc": "MC (%)", "cac": "CAC (USD)", "ltv": "LTV (USD)", "ebitda": "EBITDA (USD)",
             "margen_ebitda": "Margen EBITDA (%)"
         }).style.format({
-            "Clientes": "{:,.0f}",
-            "ARPU (USD)": "{:.2f}",
-            "CHURN (%)": "{:.2f}",
-            "MC (%)": "{:.1f}",
-            "CAC (USD)": "{:.2f}",
-            "LTV (USD)": "{:.0f}",
-            "LTV/CAC": "{:.2f}",
-            "EBITDA (USD)": "{:.0f}",
-            "Margen EBITDA (%)": "{:.1f}"
+            "Clientes": "{:,.0f}", "ARPU (USD)": "{:.2f}", "CHURN (%)": "{:.2f}", "MC (%)": "{:.1f}",
+            "CAC (USD)": "{:.2f}", "LTV (USD)": "{:.0f}", "EBITDA (USD)": "{:.0f}", "Margen EBITDA (%)": "{:.1f}"
         }),
         use_container_width=True
     )
+
+    # 🔮 Proyección mes a mes
+    st.subheader("🔮 Proyección precisa")
+    cols = st.columns(3)
+    for label, months in [("6 meses", 6), ("12 meses", 12), ("24 meses", 24)]:
+        if cols[["6 meses", "12 meses", "24 meses"].index(label)].button(f"📆 {label}"):
+            churn_dec = last["churn"] / 100
+            mc_dec = last["mc"] / 100
+            clientes_ini = last["clientes"]
+            clientes_mes, ingresos_mes, ingresos_netos_mes = [], [], []
+
+            clientes_act = clientes_ini
+            for _ in range(months):
+                ingresos_mes.append(clientes_act * last["arpu"])
+                ingresos_netos_mes.append(clientes_act * last["arpu"] * mc_dec)
+                clientes_mes.append(clientes_act)
+                clientes_act *= (1 - churn_dec)
+
+            clientes_fin = clientes_mes[-1]
+            ingresos_tot = sum(ingresos_mes)
+            ingresos_netos_tot = sum(ingresos_netos_mes)
+            clientes_perdidos = clientes_ini - clientes_fin
+            perdida_bruta = clientes_perdidos * last["arpu"] * months
+            perdida_neta = perdida_bruta * mc_dec
+
+            st.markdown(f"### 📅 Proyección a {label}")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Clientes finales", f"{clientes_fin:,.0f}", f"-{clientes_perdidos:,.0f}", delta_color="inverse")
+            c2.metric("Ingresos brutos", f"${ingresos_tot:,.0f}", f"-${perdida_bruta:,.0f}", delta_color="inverse")
+            c3.metric("Ingresos netos", f"${ingresos_netos_tot:,.0f}", f"-${perdida_neta:,.0f}", delta_color="inverse")
+
+            # Gráfico de evolución mensual
+            df_evo = pd.DataFrame({
+                "Mes": list(range(1, months + 1)),
+                "Clientes activos": clientes_mes,
+                "Ingresos brutos": ingresos_mes,
+                "Ingresos netos": ingresos_netos_mes
+            })
+
+            chart = alt.layer(
+                alt.Chart(df_evo).mark_line(color="#1f77b4", point=True).encode(
+                    x="Mes:Q", y="Clientes activos:Q", tooltip=["Mes", "Clientes activos"]
+                ),
+                alt.Chart(df_evo).mark_line(color="#2ca02c", strokeDash=[5, 3], point=True).encode(
+                    x="Mes:Q", y="Ingresos brutos:Q", tooltip=["Mes", "Ingresos brutos"]
+                ),
+                alt.Chart(df_evo).mark_line(color="#ff7f0e", point=True).encode(
+                    x="Mes:Q", y="Ingresos netos:Q", tooltip=["Mes", "Ingresos netos"]
+                )
+            ).properties(title=f"Evolución mensual de clientes e ingresos — {label}")
+
+            st.altair_chart(chart, use_container_width=True)
 
 # =====================================
 # LOGIN / REGISTRO
@@ -271,7 +300,7 @@ with st.sidebar.form("auth_form"):
 if st.sidebar.button("🔑 Restaurar contraseña"):
     if email_input:
         if reset_password(email_input):
-            st.sidebar.success("📧 Correo de recuperación enviado.")
+            st.sidebar.success("📧 Correo enviado.")
         else:
             st.sidebar.error("Error al enviar el correo.")
     else:
@@ -290,8 +319,7 @@ else:
 
 if is_admin:
     st.header("👥 Panel de administración")
-    users = list_auth_users()
-    for u in users:
+    for u in list_auth_users():
         doc = ensure_user_doc(u["uid"], u["email"])
         plan = doc.get("plan", {}).get("stringValue", "free")
         c1, c2, c3, c4, c5 = st.columns([3, 1, 1, 1, 1])
@@ -300,9 +328,7 @@ if is_admin:
         if c3.button("Pro", key=f"p_{u['uid']}"): update_plan(u["uid"], "pro"); st.rerun()
         if c4.button("Premium", key=f"x_{u['uid']}"): update_plan(u["uid"], "premium"); st.rerun()
         if c5.button("Reset", key=f"r_{u['uid']}"):
-            if u["email"] and reset_password(u["email"]):
-                st.success(f"📧 Link enviado a {u['email']}")
-            else:
-                st.error(f"No se pudo enviar reset a {u['email'] or '(sin email)'}")
+            if reset_password(u["email"]): st.success(f"📧 Link enviado a {u['email']}")
+            else: st.error(f"No se pudo enviar reset a {u['email']}")
 else:
     mostrar_dashboard_free(uid)
