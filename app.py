@@ -133,11 +133,6 @@ def update_plan(uid, nuevo_plan):
 def save_metrics(uid, year, month, clientes, arpu, churn, mc, cac):
     period = f"{year}-{month:02d}"
     path = f"tenants/{uid}/metrics/{period}"
-
-    existing = firestore_request("GET", path)
-    if existing and "fields" in existing:
-        st.info(f"ℹ️ Reescribiendo datos del período {period} (ya existía en Firestore).")
-
     data = {
         "fields": {
             "period": {"stringValue": period},
@@ -173,40 +168,25 @@ def load_metrics(uid):
 # =====================================
 def mostrar_dashboard_free(uid):
     st.header("🌱 Dashboard ISP — Versión FREE")
-    st.markdown("Cargá tus métricas mensuales para ver cómo impactan en tu negocio.")
 
     now = datetime.now()
-    st.subheader("📅 Carga mensual")
     c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
-    with c1:
-        year = st.selectbox("Año", list(range(2018, now.year + 1)), index=now.year - 2018)
-    with c2:
-        month = st.selectbox("Mes", list(range(1, 13)), index=now.month - 1)
-    with c3:
-        clientes = st.number_input("Clientes", 0, 200000, 1000, 10)
-    with c4:
-        arpu = st.number_input("ARPU (USD)", 0.0, 1000.0, 16.0, 0.1)
-    with c5:
-        churn = st.number_input("CHURN (%)", 0.01, 50.0, 2.0, 0.01)
-    with c6:
-        mc = st.number_input("MC (%)", 1.0, 100.0, 60.0, 0.1)
-    with c7:
-        cac = st.number_input("CAC (USD)", 0.0, 1000.0, 10.0, 0.1)
-
-    selected_date = datetime(year, month, 1)
-    current_date = datetime(now.year, now.month, 1)
-    if selected_date > current_date:
-        st.error("⚠️ No se pueden cargar datos de meses futuros.")
-        st.stop()
+    with c1: year = st.selectbox("Año", list(range(2018, now.year + 1)), index=now.year - 2018)
+    with c2: month = st.selectbox("Mes", list(range(1, 13)), index=now.month - 1)
+    with c3: clientes = st.number_input("Clientes", 0, 200000, 1000, 10)
+    with c4: arpu = st.number_input("ARPU (USD)", 0.0, 1000.0, 16.0, 0.1)
+    with c5: churn = st.number_input("CHURN (%)", 0.01, 50.0, 2.0, 0.01)
+    with c6: mc = st.number_input("MC (%)", 1.0, 100.0, 60.0, 0.1)
+    with c7: cac = st.number_input("CAC (USD)", 0.0, 1000.0, 10.0, 0.1)
 
     if st.button("💾 Guardar mes"):
         save_metrics(uid, year, month, clientes, arpu, churn, mc, cac)
-        st.success(f"✅ Datos guardados o actualizados correctamente ({year}-{month:02d})")
+        st.success(f"✅ Datos guardados ({year}-{month:02d})")
         st.rerun()
 
     df = load_metrics(uid)
     if df.empty:
-        st.warning("Cargá tus primeros datos para ver los resultados.")
+        st.warning("Cargá tus primeros datos para ver resultados.")
         return
 
     df["ltv"] = (df["arpu"] * (df["mc"] / 100)) / (df["churn"] / 100)
@@ -222,88 +202,69 @@ def mostrar_dashboard_free(uid):
     c5.metric("CAC", f"${last['cac']:.2f}")
     c6.metric("LTV/CAC", f"{last['ratio_ltv_cac']:.1f}x")
 
-    st.subheader("📈 Evolución del LTV")
-    st.altair_chart(
-        alt.Chart(df).mark_line(point=True).encode(
-            x="period:N", y="ltv:Q", tooltip=["clientes", "arpu", "churn", "mc", "cac", "ltv", "ratio_ltv_cac"]
-        ).properties(title="Evolución mensual del LTV"),
-        use_container_width=True
-    )
-
-    # 📋 Tabla resumen
-    st.subheader("📋 Tabla resumen mensual")
-    st.dataframe(
-        df[["period", "clientes", "arpu", "churn", "mc", "cac", "ltv", "ratio_ltv_cac"]],
-        use_container_width=True
-    )
-
-    # 🔮 Proyecciones
-    st.subheader("🔮 Proyecciones de crecimiento")
+    # 🔮 Proyecciones precisas
+    st.subheader("🔮 Proyecciones de crecimiento (precisas mes a mes)")
     cols = st.columns(3)
     for label, months in [("6 meses", 6), ("12 meses", 12), ("24 meses", 24)]:
         if cols[["6 meses", "12 meses", "24 meses"].index(label)].button(f"📆 {label}"):
             churn_dec = last["churn"] / 100
             mc_dec = last["mc"] / 100
             clientes_ini = last["clientes"]
-            clientes_fin = clientes_ini * ((1 - churn_dec) ** months)
-            clientes_prom = (clientes_ini + clientes_fin) / 2
-            ingresos = clientes_prom * last["arpu"] * months
-            ingresos_netos = ingresos * mc_dec
 
-            perdida_mensual_cliente = last["arpu"] * (last["mc"] / 100)
+            clientes_mes = clientes_ini
+            ingresos_mensuales, ingresos_netos_mensuales, clientes_hist = [], [], []
+
+            for _ in range(months):
+                ingreso_mes = clientes_mes * last["arpu"]
+                ingreso_neto_mes = ingreso_mes * mc_dec
+                ingresos_mensuales.append(ingreso_mes)
+                ingresos_netos_mensuales.append(ingreso_neto_mes)
+                clientes_hist.append(clientes_mes)
+                clientes_mes *= (1 - churn_dec)
+
+            clientes_fin = clientes_hist[-1]
+            ingresos = sum(ingresos_mensuales)
+            ingresos_netos = sum(ingresos_netos_mensuales)
             clientes_perdidos = clientes_ini - clientes_fin
-            perdida_total = clientes_perdidos * perdida_mensual_cliente * months
-            arpu_proyectado = ingresos / clientes_prom / months
+
+            perdida_bruta = clientes_perdidos * last["arpu"] * months
+            perdida_neta = perdida_bruta * mc_dec
 
             st.markdown(f"### 📅 Proyección a {label}")
             c1, c2, c3 = st.columns(3)
-            c1.metric("Clientes finales", f"{clientes_fin:,.0f}")
-            c2.metric("Ingresos brutos", f"${ingresos:,.0f}")
-            c3.metric("Ingresos netos", f"${ingresos_netos:,.0f}")
+            c1.metric("Clientes finales", f"{clientes_fin:,.0f}", f"-{clientes_perdidos:,.0f}", delta_color="inverse")
+            c2.metric("Ingresos brutos", f"${ingresos:,.0f}", f"-${perdida_bruta:,.0f}", delta_color="inverse")
+            c3.metric("Ingresos netos", f"${ingresos_netos:,.0f}", f"-${perdida_neta:,.0f}", delta_color="inverse")
 
-            st.markdown("#### 📊 Indicadores complementarios")
-            c4, c5, c6 = st.columns(3)
-            c4.metric("ARPU proyectado", f"${arpu_proyectado:,.2f}")
-            c5.metric("Pérdida mensual por cliente", f"${perdida_mensual_cliente:,.2f}")
-            c6.metric(f"Pérdida total en {label}", f"${perdida_total:,.0f}")
-
-            # === Gráfico combinado con área sombreada ===
-            meses = list(range(1, months + 1))
-            clientes_series = [clientes_ini * ((1 - churn_dec) ** m) for m in meses]
-            clientes_perdidos_series = [clientes_ini - c for c in clientes_series]
-            perdidas_series = [p * perdida_mensual_cliente for p in clientes_perdidos_series]
-
-            df_proj = pd.DataFrame({
-                "Mes": meses,
-                "Clientes perdidos": clientes_perdidos_series,
-                "Ingresos perdidos": perdidas_series
+            # 📊 Gráfico de evolución mensual
+            df_evo = pd.DataFrame({
+                "Mes": list(range(1, months + 1)),
+                "Clientes activos": clientes_hist,
+                "Ingresos brutos": ingresos_mensuales,
+                "Ingresos netos": ingresos_netos_mensuales
             })
 
-            st.markdown("#### 📉 Evolución de pérdidas de clientes e ingresos")
-
-            base = alt.Chart(df_proj).encode(x=alt.X("Mes:Q", title="Mes"))
-
-            area = base.mark_area(
-                opacity=0.2, color="#d62728"
-            ).encode(
-                y="Clientes perdidos:Q",
-                y2="Ingresos perdidos:Q"
-            )
+            base = alt.Chart(df_evo).encode(x="Mes:Q")
 
             line_clientes = base.mark_line(color="#1f77b4", point=True, strokeWidth=2).encode(
-                y=alt.Y("Clientes perdidos:Q", title="Clientes perdidos"),
-                tooltip=["Mes", "Clientes perdidos"]
+                y=alt.Y("Clientes activos:Q", title="Clientes activos"),
+                tooltip=["Mes", "Clientes activos"]
             )
 
-            line_ingresos = base.mark_line(color="#d62728", point=True, strokeWidth=2, strokeDash=[5,3]).encode(
-                y=alt.Y("Ingresos perdidos:Q", title="Ingresos perdidos (USD)"),
-                tooltip=["Mes", "Ingresos perdidos"]
+            line_ingresos = base.mark_line(color="#2ca02c", point=True, strokeWidth=2, strokeDash=[4, 3]).encode(
+                y=alt.Y("Ingresos brutos:Q", title="Ingresos (USD)"),
+                tooltip=["Mes", "Ingresos brutos"]
             )
 
-            chart = alt.layer(area, line_clientes, line_ingresos).resolve_scale(
+            line_netos = base.mark_line(color="#ff7f0e", point=True, strokeWidth=2).encode(
+                y=alt.Y("Ingresos netos:Q"),
+                tooltip=["Mes", "Ingresos netos"]
+            )
+
+            chart = alt.layer(line_clientes, line_ingresos, line_netos).resolve_scale(
                 y='independent'
             ).properties(
-                title="Evolución acumulada de pérdidas",
+                title=f"Evolución mensual de clientes e ingresos — {label}",
                 width='container'
             )
 
@@ -371,4 +332,3 @@ if is_admin:
                 st.error(f"No se pudo enviar reset a {u['email'] or '(sin email)'}")
 else:
     mostrar_dashboard_free(uid)
-
