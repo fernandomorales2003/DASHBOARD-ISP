@@ -130,11 +130,10 @@ def update_plan(uid, nuevo_plan):
 # =====================================
 # MÉTRICAS
 # =====================================
-def save_metrics(uid, year, month, arpu, churn, mc):
+def save_metrics(uid, year, month, arpu, churn, mc, cac):
     period = f"{year}-{month:02d}"
     path = f"tenants/{uid}/metrics/{period}"
 
-    # Chequear si ya existe el período
     existing = firestore_request("GET", path)
     if existing and "fields" in existing:
         st.info(f"ℹ️ Reescribiendo datos del período {period} (ya existía en Firestore).")
@@ -145,6 +144,7 @@ def save_metrics(uid, year, month, arpu, churn, mc):
             "arpu": {"doubleValue": arpu},
             "churn": {"doubleValue": churn},
             "mc": {"doubleValue": mc},
+            "cac": {"doubleValue": cac},
             "created_at": {"integerValue": int(time.time())}
         }
     }
@@ -161,7 +161,8 @@ def load_metrics(uid):
             "period": f.get("period", {}).get("stringValue", "N/A"),
             "arpu": float(f.get("arpu", {}).get("doubleValue", 0)),
             "churn": float(f.get("churn", {}).get("doubleValue", 0)),
-            "mc": float(f.get("mc", {}).get("doubleValue", 0))
+            "mc": float(f.get("mc", {}).get("doubleValue", 0)),
+            "cac": float(f.get("cac", {}).get("doubleValue", 0))
         })
     return pd.DataFrame(rows).sort_values("period")
 
@@ -174,7 +175,7 @@ def mostrar_dashboard_free(uid):
 
     now = datetime.now()
     st.subheader("📅 Carga mensual")
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     with c1:
         year = st.selectbox("Año", list(range(2018, now.year + 1)), index=now.year - 2018)
     with c2:
@@ -185,8 +186,9 @@ def mostrar_dashboard_free(uid):
         churn = st.number_input("CHURN (%)", 0.01, 50.0, 2.0, 0.01)
     with c5:
         mc = st.number_input("MC (%)", 1.0, 100.0, 60.0, 0.1)
+    with c6:
+        cac = st.number_input("CAC (USD)", 0.0, 1000.0, 10.0, 0.1)
 
-    # 🚫 Validar que no se pueda cargar un mes futuro
     selected_date = datetime(year, month, 1)
     current_date = datetime(now.year, now.month, 1)
     if selected_date > current_date:
@@ -194,7 +196,7 @@ def mostrar_dashboard_free(uid):
         st.stop()
 
     if st.button("💾 Guardar mes"):
-        save_metrics(uid, year, month, arpu, churn, mc)
+        save_metrics(uid, year, month, arpu, churn, mc, cac)
         st.success(f"✅ Datos guardados o actualizados correctamente ({year}-{month:02d})")
         st.rerun()
 
@@ -204,39 +206,46 @@ def mostrar_dashboard_free(uid):
         return
 
     df["ltv"] = (df["arpu"] * (df["mc"] / 100)) / (df["churn"] / 100)
+    df["ratio_ltv_cac"] = df["ltv"] / df["cac"]
     last = df.iloc[-1]
 
     st.subheader("📊 Indicadores actuales")
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("ARPU", f"${last['arpu']:.2f}")
     c2.metric("CHURN", f"{last['churn']:.2f}%")
     c3.metric("MC", f"{last['mc']:.1f}%")
-    c4.metric("LTV", f"${last['ltv']:.0f}")
+    c4.metric("CAC", f"${last['cac']:.2f}")
+    c5.metric("LTV/CAC", f"{last['ratio_ltv_cac']:.1f}x")
 
     st.subheader("📈 Evolución del LTV")
     st.altair_chart(
         alt.Chart(df).mark_line(point=True).encode(
-            x="period:N", y="ltv:Q", tooltip=["arpu", "churn", "mc", "ltv"]
+            x="period:N", y="ltv:Q", tooltip=["arpu", "churn", "mc", "cac", "ltv", "ratio_ltv_cac"]
         ).properties(title="Evolución mensual del LTV"),
         use_container_width=True
     )
 
-    st.subheader("🔮 Proyecciones")
-    clientes = st.number_input("Clientes actuales", 1, 200000, 1000, 10)
-    cols = st.columns(3)
-    for label, months in [("6 meses", 6), ("12 meses", 12), ("24 meses", 24)]:
-        if cols[["6 meses", "12 meses", "24 meses"].index(label)].button(f"📆 {label}"):
-            churn_dec = last["churn"] / 100
-            mc_dec = last["mc"] / 100
-            clientes_fin = clientes * ((1 - churn_dec) ** months)
-            clientes_prom = (clientes + clientes_fin) / 2
-            ingresos = clientes_prom * last["arpu"] * months
-            ingresos_netos = ingresos * mc_dec
-            st.markdown(f"### 📅 Proyección a {label}")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Clientes finales", f"{clientes_fin:,.0f}")
-            c2.metric("Ingresos brutos", f"${ingresos:,.0f}")
-            c3.metric("Ingresos netos", f"${ingresos_netos:,.0f}")
+    # 📋 Tabla resumen
+    st.subheader("📋 Tabla resumen mensual")
+    st.dataframe(
+        df[["period", "arpu", "churn", "mc", "cac", "ltv", "ratio_ltv_cac"]].rename(columns={
+            "period": "Período",
+            "arpu": "ARPU (USD)",
+            "churn": "CHURN (%)",
+            "mc": "MC (%)",
+            "cac": "CAC (USD)",
+            "ltv": "LTV (USD)",
+            "ratio_ltv_cac": "LTV/CAC"
+        }).style.format({
+            "ARPU (USD)": "{:.2f}",
+            "CHURN (%)": "{:.2f}",
+            "MC (%)": "{:.1f}",
+            "CAC (USD)": "{:.2f}",
+            "LTV (USD)": "{:.0f}",
+            "LTV/CAC": "{:.2f}"
+        }),
+        use_container_width=True
+    )
 
 # =====================================
 # LOGIN / REGISTRO
@@ -263,7 +272,6 @@ with st.sidebar.form("auth_form"):
             st.sidebar.success("✅ Bienvenido.")
             st.rerun()
 
-# Reset password
 if st.sidebar.button("🔑 Restaurar contraseña"):
     if email_input:
         if reset_password(email_input):
@@ -284,9 +292,6 @@ if is_admin:
 else:
     st.sidebar.info(f"Usuario: {email}")
 
-# =====================================
-# ADMIN / USER DASHBOARD
-# =====================================
 if is_admin:
     st.header("👥 Panel de administración")
     users = list_auth_users()
