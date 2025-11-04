@@ -233,24 +233,7 @@ def mostrar_dashboard_free(uid):
     # 📋 Tabla resumen
     st.subheader("📋 Tabla resumen mensual")
     st.dataframe(
-        df[["period", "clientes", "arpu", "churn", "mc", "cac", "ltv", "ratio_ltv_cac"]].rename(columns={
-            "period": "Período",
-            "clientes": "Clientes",
-            "arpu": "ARPU (USD)",
-            "churn": "CHURN (%)",
-            "mc": "MC (%)",
-            "cac": "CAC (USD)",
-            "ltv": "LTV (USD)",
-            "ratio_ltv_cac": "LTV/CAC"
-        }).style.format({
-            "Clientes": "{:,.0f}",
-            "ARPU (USD)": "{:.2f}",
-            "CHURN (%)": "{:.2f}",
-            "MC (%)": "{:.1f}",
-            "CAC (USD)": "{:.2f}",
-            "LTV (USD)": "{:.0f}",
-            "LTV/CAC": "{:.2f}"
-        }),
+        df[["period", "clientes", "arpu", "churn", "mc", "cac", "ltv", "ratio_ltv_cac"]],
         use_container_width=True
     )
 
@@ -267,7 +250,6 @@ def mostrar_dashboard_free(uid):
             ingresos = clientes_prom * last["arpu"] * months
             ingresos_netos = ingresos * mc_dec
 
-            # Cálculos adicionales
             perdida_mensual_cliente = last["arpu"] * (last["mc"] / 100)
             clientes_perdidos = clientes_ini - clientes_fin
             perdida_total = clientes_perdidos * perdida_mensual_cliente * months
@@ -285,7 +267,7 @@ def mostrar_dashboard_free(uid):
             c5.metric("Pérdida mensual por cliente", f"${perdida_mensual_cliente:,.2f}")
             c6.metric(f"Pérdida total en {label}", f"${perdida_total:,.0f}")
 
-            # === Gráfico combinado de pérdidas ===
+            # === Gráfico combinado con área sombreada ===
             meses = list(range(1, months + 1))
             clientes_series = [clientes_ini * ((1 - churn_dec) ** m) for m in meses]
             clientes_perdidos_series = [clientes_ini - c for c in clientes_series]
@@ -298,28 +280,39 @@ def mostrar_dashboard_free(uid):
             })
 
             st.markdown("#### 📉 Evolución de pérdidas de clientes e ingresos")
-            chart = (
-                alt.Chart(df_proj)
-                .transform_fold(
-                    ["Clientes perdidos", "Ingresos perdidos"],
-                    as_=["Indicador", "Valor"]
-                )
-                .mark_line(point=True)
-                .encode(
-                    x=alt.X("Mes:Q"),
-                    y=alt.Y("Valor:Q"),
-                    color="Indicador:N",
-                    tooltip=["Mes", "Indicador", "Valor"]
-                )
-                .properties(title="Evolución de pérdidas acumuladas")
+
+            base = alt.Chart(df_proj).encode(x=alt.X("Mes:Q", title="Mes"))
+
+            area = base.mark_area(
+                opacity=0.2, color="#d62728"
+            ).encode(
+                y="Clientes perdidos:Q",
+                y2="Ingresos perdidos:Q"
             )
+
+            line_clientes = base.mark_line(color="#1f77b4", point=True, strokeWidth=2).encode(
+                y=alt.Y("Clientes perdidos:Q", title="Clientes perdidos"),
+                tooltip=["Mes", "Clientes perdidos"]
+            )
+
+            line_ingresos = base.mark_line(color="#d62728", point=True, strokeWidth=2, strokeDash=[5,3]).encode(
+                y=alt.Y("Ingresos perdidos:Q", title="Ingresos perdidos (USD)"),
+                tooltip=["Mes", "Ingresos perdidos"]
+            )
+
+            chart = alt.layer(area, line_clientes, line_ingresos).resolve_scale(
+                y='independent'
+            ).properties(
+                title="Evolución acumulada de pérdidas",
+                width='container'
+            )
+
             st.altair_chart(chart, use_container_width=True)
 
 # =====================================
 # LOGIN / REGISTRO
 # =====================================
 st.title("📊 Dashboard ISP — Acceso")
-
 mode = st.sidebar.radio("Acción", ["Iniciar sesión", "Registrar usuario"])
 with st.sidebar.form("auth_form"):
     email_input = st.text_input("Correo electrónico")
@@ -378,3 +371,4 @@ if is_admin:
                 st.error(f"No se pudo enviar reset a {u['email'] or '(sin email)'}")
 else:
     mostrar_dashboard_free(uid)
+
