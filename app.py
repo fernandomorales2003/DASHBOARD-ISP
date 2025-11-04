@@ -247,6 +247,24 @@ def mostrar_dashboard_free(uid):
         use_container_width=True
     )
 
+    # 🔮 Proyecciones
+    st.subheader("🔮 Proyecciones de crecimiento")
+    clientes = st.number_input("Clientes actuales", 1, 200000, 1000, 10)
+    cols = st.columns(3)
+    for label, months in [("6 meses", 6), ("12 meses", 12), ("24 meses", 24)]:
+        if cols[["6 meses", "12 meses", "24 meses"].index(label)].button(f"📆 {label}"):
+            churn_dec = last["churn"] / 100
+            mc_dec = last["mc"] / 100
+            clientes_fin = clientes * ((1 - churn_dec) ** months)
+            clientes_prom = (clientes + clientes_fin) / 2
+            ingresos = clientes_prom * last["arpu"] * months
+            ingresos_netos = ingresos * mc_dec
+            st.markdown(f"### 📅 Proyección a {label}")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Clientes finales", f"{clientes_fin:,.0f}")
+            c2.metric("Ingresos brutos", f"${ingresos:,.0f}")
+            c3.metric("Ingresos netos", f"${ingresos_netos:,.0f}")
+
 # =====================================
 # LOGIN / REGISTRO
 # =====================================
