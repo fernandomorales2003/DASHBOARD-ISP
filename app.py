@@ -9,7 +9,7 @@ import firebase_admin
 from firebase_admin import credentials, auth
 from datetime import datetime
 
-st.set_page_config(page_title="Dashboard ISP — Admin + FREE", layout="wide")
+st.set_page_config(page_title="Dashboard ISP — Admin + FREE + Salud", layout="wide")
 
 # =====================================
 # FIREBASE ADMIN INIT
@@ -57,7 +57,7 @@ def endpoints():
     return {
         "sign_in": f"{base_auth}/accounts:signInWithPassword?key={api_key}",
         "sign_up": f"{base_auth}/accounts:signUp?key={api_key}",
-        "reset":   f"{base_auth}/accounts:sendOobCode?key={api_key}",
+        "reset": f"{base_auth}/accounts:sendOobCode?key={api_key}",
     }
 
 def sign_in(email, password):
@@ -71,18 +71,10 @@ def reset_password(email):
         st.error("❌ No se proporcionó email para reset.")
         return False
     r = requests.post(endpoints()["reset"], json={"requestType": "PASSWORD_RESET", "email": email})
-    if r.status_code == 200:
-        return True
-    else:
-        st.error(f"❌ Error Firebase ({r.status_code}): {r.text}")
-        return False
+    return r.status_code == 200
 
 def store_session(res):
-    st.session_state["auth"] = {
-        "id_token": res.get("idToken"),
-        "uid": res.get("localId"),
-        "email": res.get("email")
-    }
+    st.session_state["auth"] = {"id_token": res.get("idToken"), "uid": res.get("localId"), "email": res.get("email")}
 
 # =====================================
 # HELPERS ADMIN
@@ -105,11 +97,7 @@ def ensure_user_doc(uid, email):
     fields = get_user_doc(uid)
     if not fields:
         firestore_request("PATCH", f"users/{uid}", {
-            "fields": {
-                "email": {"stringValue": email or ""},
-                "plan": {"stringValue": "free"},
-                "fecha_registro": {"integerValue": int(time.time())}
-            }
+            "fields": {"email": {"stringValue": email or ""}, "plan": {"stringValue": "free"}, "fecha_registro": {"integerValue": int(time.time())}}
         })
         return {"email": {"stringValue": email or ""}, "plan": {"stringValue": "free"}}
     return fields
@@ -118,11 +106,7 @@ def update_plan(uid, nuevo_plan):
     fields = get_user_doc(uid)
     email = fields["email"].get("stringValue", "") if fields and "email" in fields else ""
     data = {
-        "fields": {
-            "email": {"stringValue": email},
-            "plan": {"stringValue": nuevo_plan},
-            "fecha_registro": fields.get("fecha_registro", {"integerValue": int(time.time())})
-        }
+        "fields": {"email": {"stringValue": email}, "plan": {"stringValue": nuevo_plan}, "fecha_registro": fields.get("fecha_registro", {"integerValue": int(time.time())})}
     }
     firestore_request("PATCH", f"users/{uid}", data)
     return True
@@ -169,164 +153,88 @@ def load_metrics(uid):
     return pd.DataFrame(rows).sort_values("period")
 
 # =====================================
-# PROYECCIÓN PRECISA
-# =====================================
-def proyectar_mes_a_mes(clientes_ini, churn_pct, arpu, mc_pct, months):
-    churn_dec = churn_pct / 100.0
-    mc_dec = mc_pct / 100.0
-    clientes_mes, ingresos_mes, ingresos_netos_mes, perdidos_mes, ingresos_perdidos_mes = [], [], [], [], []
-
-    c = float(clientes_ini)
-    for _ in range(months):
-        c_next = c * (1 - churn_dec)
-        perdidos = c - c_next
-        ingreso_m = c * arpu
-        ingreso_neto_m = ingreso_m * mc_dec
-        ingreso_perdido_m = perdidos * arpu
-
-        clientes_mes.append(c_next)
-        ingresos_mes.append(ingreso_m)
-        ingresos_netos_mes.append(ingreso_neto_m)
-        perdidos_mes.append(perdidos)
-        ingresos_perdidos_mes.append(ingreso_perdido_m)
-        c = c_next
-
-    return {
-        "clientes_mes": clientes_mes,
-        "ingresos_mes": ingresos_mes,
-        "ingresos_netos_mes": ingresos_netos_mes,
-        "perdidos_mes": perdidos_mes,
-        "ingresos_perdidos_mes": ingresos_perdidos_mes,
-        "total_ingresos": sum(ingresos_mes),
-        "total_ingresos_netos": sum(ingresos_netos_mes),
-        "total_perdidos": sum(perdidos_mes),
-        "total_ingresos_perdidos": sum(ingresos_perdidos_mes),
-        "clientes_finales": clientes_mes[-1] if clientes_mes else clientes_ini,
-    }
-
-# =====================================
 # DASHBOARD FREE
 # =====================================
 def mostrar_dashboard_free(uid):
-    st.header("🌱 Dashboard ISP — Versión FREE")
-    st.markdown("Cargá tus métricas mensuales para ver cómo impactan en tu negocio.")
+    st.header("🌱 Dashboard ISP — Versión FREE con Salud del Negocio")
 
     now = datetime.now()
     st.subheader("📅 Carga mensual")
     c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
-    with c1:
-        year = st.selectbox("Año", list(range(2018, now.year + 1)), index=now.year - 2018)
-    with c2:
-        month = st.selectbox("Mes", list(range(1, 13)), index=now.month - 1)
-    with c3:
-        clientes = st.number_input("Clientes", 0, 200000, 1000, 10)
-    with c4:
-        arpu = st.number_input("ARPU (USD)", 0.0, 1000.0, 16.0, 0.1)
-    with c5:
-        churn = st.number_input("CHURN (%)", 0.01, 50.0, 2.0, 0.01)
-    with c6:
-        mc = st.number_input("MC (%)", 1.0, 100.0, 60.0, 0.1)
-    with c7:
-        cac = st.number_input("CAC (USD)", 0.0, 1000.0, 10.0, 0.1)
+    with c1: year = st.selectbox("Año", list(range(2018, now.year + 1)), index=now.year - 2018)
+    with c2: month = st.selectbox("Mes", list(range(1, 13)), index=now.month - 1)
+    with c3: clientes = st.number_input("Clientes", 0, 200000, 1000, 10)
+    with c4: arpu = st.number_input("ARPU (USD)", 0.0, 1000.0, 16.0, 0.1)
+    with c5: churn = st.number_input("CHURN (%)", 0.01, 50.0, 2.0, 0.01)
+    with c6: mc = st.number_input("MC (%)", 1.0, 100.0, 60.0, 0.1)
+    with c7: cac = st.number_input("CAC (USD)", 0.0, 1000.0, 10.0, 0.1)
 
-    selected_date = datetime(year, month, 1)
-    if selected_date > datetime(now.year, now.month, 1):
+    if datetime(year, month, 1) > datetime(now.year, now.month, 1):
         st.error("⚠️ No se pueden cargar datos de meses futuros.")
         st.stop()
 
     if st.button("💾 Guardar mes"):
         save_metrics(uid, year, month, clientes, arpu, churn, mc, cac)
-        st.success(f"✅ Datos guardados o actualizados ({year}-{month:02d})")
+        st.success(f"✅ Datos guardados ({year}-{month:02d})")
         st.rerun()
 
     df = load_metrics(uid)
     if df.empty:
-        st.warning("Cargá tus primeros datos para ver los resultados.")
+        st.warning("Cargá tus primeros datos.")
         return
 
     df["ltv"] = (df["arpu"] * (df["mc"] / 100)) / (df["churn"] / 100)
+    df["ratio_ltv_cac"] = df["ltv"] / df["cac"]
+    df["crecimiento"] = df["clientes"].pct_change().fillna(0)
     df["ebitda"] = df["clientes"] * df["arpu"] * (df["mc"] / 100)
     last = df.iloc[-1]
 
     st.subheader("📊 Indicadores actuales")
-    cols = st.columns(6)
-    cols[0].metric("Clientes", f"{last['clientes']:,}")
-    cols[1].metric("ARPU", f"${last['arpu']:.2f}")
-    cols[2].metric("CHURN", f"{last['churn']:.2f}%")
-    cols[3].metric("MC", f"{last['mc']:.1f}%")
-    cols[4].metric("CAC", f"${last['cac']:.2f}")
-    cols[5].metric("EBITDA", f"${last['ebitda']:,.0f}")
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("Clientes", f"{last['clientes']:,}")
+    c2.metric("ARPU", f"${last['arpu']:.2f}")
+    c3.metric("CHURN", f"{last['churn']:.2f}%")
+    c4.metric("MC", f"{last['mc']:.1f}%")
+    c5.metric("LTV/CAC", f"{last['ratio_ltv_cac']:.1f}x")
+    c6.metric("EBITDA", f"${last['ebitda']:.0f}")
 
-    st.markdown("### 💸 Costo real por cliente perdido")
-    st.metric("Costo real por cliente perdido", f"${last['ltv']:,.0f}")
+    # 💡 SALUD DEL NEGOCIO
+    salud = (
+        min(last["ratio_ltv_cac"] / 5, 1) * 0.30 +
+        (1 - min(last["churn"] / 10, 1)) * 0.20 +
+        (last["mc"] / 100) * 0.15 +
+        min(last["arpu"] / 50, 1) * 0.10 +
+        min(last["crecimiento"] / 0.05, 1) * 0.15 +
+        min(last["ebitda"] / 50000, 1) * 0.10
+    ) * 100
 
-    st.subheader("🔮 Proyección visual precisa")
-    col_sel, col_btn = st.columns([2, 1])
-    horizonte = col_sel.selectbox("Horizonte de proyección", [6, 12, 24], index=0)
-    if col_btn.button("Calcular proyección"):
-        res = proyectar_mes_a_mes(
-            last["clientes"], last["churn"], last["arpu"], last["mc"], horizonte
-        )
-        clientes_ini = last["clientes"]
-        st.markdown(f"## 📅 Proyección a {horizonte} meses")
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown(
-                f"<h2 style='color:#e63946;'>📉 {res['total_perdidos']:.0f}</h2>"
-                f"<p style='font-size:15px;'>Clientes perdidos</p>"
-                f"<p style='color:gray;'>Clientes actuales: {clientes_ini:,.0f}</p>",
-                unsafe_allow_html=True,
-            )
-        with c2:
-            st.markdown(
-                f"<h2 style='color:#f3722c;'>💔 ${res['total_ingresos_perdidos']:,.0f}</h2>"
-                f"<p style='font-size:15px;'>Ingresos perdidos</p>"
-                f"<p style='color:gray;'>Ingresos netos actuales: ${res['total_ingresos_netos']:,.0f}</p>",
-                unsafe_allow_html=True,
-            )
-        with c3:
-            st.markdown(
-                f"<h2 style='color:#00cc83;'>📈 {res['clientes_finales']:.0f}</h2>"
-                f"<p style='font-size:15px;'>Clientes finales</p>"
-                f"<p style='color:gray;'>Total proyección {horizonte} meses</p>",
-                unsafe_allow_html=True,
-            )
+    color = "#E63946" if salud < 40 else "#F1C40F" if salud < 70 else "#00CC83"
+    st.markdown(f"### 🚦 Salud del negocio: <span style='color:{color};font-size:28px;font-weight:bold'>{salud:.1f}%</span>", unsafe_allow_html=True)
 
-        # Gráfico pérdidas
-        meses = list(range(1, horizonte + 1))
-        df_loss = pd.DataFrame({
-            "Mes": meses,
-            "Clientes perdidos": res["perdidos_mes"],
-            "Ingresos perdidos": res["ingresos_perdidos_mes"],
-        }).melt(id_vars="Mes", var_name="Tipo", value_name="Valor")
-        chart = (
-            alt.Chart(df_loss)
-            .mark_line(point=True)
-            .encode(
-                x=alt.X("Mes:Q"),
-                y=alt.Y("Valor:Q"),
-                color="Tipo:N",
-                tooltip=["Mes", "Tipo", "Valor"]
-            )
-            .properties(height=300)
-        )
-        st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(
+        alt.Chart(pd.DataFrame({"Salud":[salud], "Restante":[100-salud]}))
+        .transform_fold(["Salud","Restante"])
+        .mark_arc(innerRadius=60, outerRadius=90)
+        .encode(theta="value:Q", color=alt.Color("key:N", scale=alt.Scale(domain=["Salud","Restante"], range=[color,"#e0e0e0"])))
+        .properties(width=180, height=180, title="Índice Salud ISP"),
+        use_container_width=False
+    )
+
+    # 📋 Tabla resumen
+    st.dataframe(df[["period", "clientes", "arpu", "churn", "mc", "cac", "ltv", "ratio_ltv_cac", "ebitda", "crecimiento"]])
 
 # =====================================
-# LOGIN
+# LOGIN / REGISTRO
 # =====================================
 st.title("📊 Dashboard ISP — Acceso")
 
 mode = st.sidebar.radio("Acción", ["Iniciar sesión", "Registrar usuario"])
 with st.sidebar.form("auth_form"):
-    email = st.text_input("Correo electrónico")
+    email_input = st.text_input("Correo electrónico")
     password = st.text_input("Contraseña", type="password")
     submitted = st.form_submit_button("Continuar")
     if submitted:
-        if mode == "Registrar usuario":
-            r = sign_up(email, password)
-        else:
-            r = sign_in(email, password)
+        r = sign_up(email_input, password) if mode == "Registrar usuario" else sign_in(email_input, password)
         if "error" in r:
             st.sidebar.error(r["error"]["message"])
         else:
@@ -335,12 +243,9 @@ with st.sidebar.form("auth_form"):
             st.sidebar.success("✅ Bienvenido.")
             st.rerun()
 
-if st.sidebar.button("🔑 Restaurar contraseña"):
-    if email:
-        reset_password(email)
-        st.sidebar.success("📧 Correo de recuperación enviado.")
-    else:
-        st.sidebar.warning("Ingresá tu correo antes.")
+if st.sidebar.button("🔑 Restaurar contraseña") and email_input:
+    reset_password(email_input)
+    st.sidebar.success("📧 Correo enviado.")
 
 if "auth" not in st.session_state:
     st.stop()
@@ -365,6 +270,7 @@ if is_admin:
         if c3.button("Pro", key=f"p_{u['uid']}"): update_plan(u["uid"], "pro"); st.rerun()
         if c4.button("Premium", key=f"x_{u['uid']}"): update_plan(u["uid"], "premium"); st.rerun()
         if c5.button("Reset", key=f"r_{u['uid']}"):
-            reset_password(u["email"]); st.success(f"📧 Reset enviado a {u['email']}")
+            if u["email"] and reset_password(u["email"]):
+                st.success(f"📧 Link enviado a {u['email']}")
 else:
     mostrar_dashboard_free(uid)
