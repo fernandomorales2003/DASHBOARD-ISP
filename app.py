@@ -39,7 +39,6 @@ def firestore_request(method, path, data=None, params=None):
         else:
             return None
         if r.status_code == 404:
-            # Documento no existe (usado para chequear existencia antes de crear)
             return None
         if r.status_code not in (200, 201):
             st.error(f"❌ Firestore error {r.status_code}: {r.text}")
@@ -135,7 +134,6 @@ def save_metrics(uid, year, month, clientes, arpu, churn, mc, cac):
     period = f"{year}-{month:02d}"
     path = f"tenants/{uid}/metrics/{period}"
 
-    # Aviso si existe (reescritura)
     existing = firestore_request("GET", path)
     if existing and "fields" in existing:
         st.info(f"ℹ️ Reescribiendo datos del período {period} (ya existía en Firestore).")
@@ -163,28 +161,23 @@ def load_metrics(uid):
         rows.append({
             "period": f.get("period", {}).get("stringValue", "N/A"),
             "clientes": int(f.get("clientes", {}).get("integerValue", 0)),
-            "arpu": float(f.get("arpu", {}).get("doubleValue", 0.0)),
-            "churn": float(f.get("churn", {}).get("doubleValue", 0.0)),
-            "mc": float(f.get("mc", {}).get("doubleValue", 0.0)),
-            "cac": float(f.get("cac", {}).get("doubleValue", 0.0)),
+            "arpu": float(f.get("arpu", {}).get("doubleValue", 0)),
+            "churn": float(f.get("churn", {}).get("doubleValue", 0)),
+            "mc": float(f.get("mc", {}).get("doubleValue", 0)),
+            "cac": float(f.get("cac", {}).get("doubleValue", 0))
         })
     return pd.DataFrame(rows).sort_values("period")
 
 # =====================================
-# PROYECCIÓN (precisa mes a mes)
+# PROYECCIÓN PRECISA
 # =====================================
 def proyectar_mes_a_mes(clientes_ini, churn_pct, arpu, mc_pct, months):
-    """Devuelve dict con series y totales: ingresos brutos (suma mensual), netos y pérdidas."""
     churn_dec = churn_pct / 100.0
     mc_dec = mc_pct / 100.0
-    clientes_mes = []
-    ingresos_mes = []
-    ingresos_netos_mes = []
-    perdidos_mes = []
-    ingresos_perdidos_mes = []
+    clientes_mes, ingresos_mes, ingresos_netos_mes, perdidos_mes, ingresos_perdidos_mes = [], [], [], [], []
 
     c = float(clientes_ini)
-    for m in range(1, months + 1):
+    for _ in range(months):
         c_next = c * (1 - churn_dec)
         perdidos = c - c_next
         ingreso_m = c * arpu
@@ -196,7 +189,6 @@ def proyectar_mes_a_mes(clientes_ini, churn_pct, arpu, mc_pct, months):
         ingresos_netos_mes.append(ingreso_neto_m)
         perdidos_mes.append(perdidos)
         ingresos_perdidos_mes.append(ingreso_perdido_m)
-
         c = c_next
 
     return {
@@ -237,16 +229,14 @@ def mostrar_dashboard_free(uid):
     with c7:
         cac = st.number_input("CAC (USD)", 0.0, 1000.0, 10.0, 0.1)
 
-    # 🚫 Evitar meses futuros
     selected_date = datetime(year, month, 1)
-    current_date = datetime(now.year, now.month, 1)
-    if selected_date > current_date:
+    if selected_date > datetime(now.year, now.month, 1):
         st.error("⚠️ No se pueden cargar datos de meses futuros.")
         st.stop()
 
     if st.button("💾 Guardar mes"):
         save_metrics(uid, year, month, clientes, arpu, churn, mc, cac)
-        st.success(f"✅ Datos guardados o actualizados correctamente ({year}-{month:02d})")
+        st.success(f"✅ Datos guardados o actualizados ({year}-{month:02d})")
         st.rerun()
 
     df = load_metrics(uid)
@@ -254,134 +244,89 @@ def mostrar_dashboard_free(uid):
         st.warning("Cargá tus primeros datos para ver los resultados.")
         return
 
-    # Derivados
-    df["ltv"] = (df["arpu"] * (df["mc"] / 100.0)) / (df["churn"] / 100.0).replace(0, pd.NA)
-    df["ebitda"] = df["clientes"] * df["arpu"] * (df["mc"] / 100.0)
-    df["margen_ebitda"] = (df["ebitda"] / (df["clientes"] * df["arpu"]).replace(0, pd.NA)) * 100.0
-    df["ratio_ltv_cac"] = df.apply(lambda r: (r["ltv"] / r["cac"]) if r["cac"] else pd.NA, axis=1)
-
+    df["ltv"] = (df["arpu"] * (df["mc"] / 100)) / (df["churn"] / 100)
+    df["ebitda"] = df["clientes"] * df["arpu"] * (df["mc"] / 100)
     last = df.iloc[-1]
 
-    # KPIs
     st.subheader("📊 Indicadores actuales")
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
-    k1.metric("Clientes", f"{last['clientes']:,}")
-    k2.metric("ARPU", f"${last['arpu']:.2f}")
-    k3.metric("CHURN", f"{last['churn']:.2f}%")
-    k4.metric("MC", f"{last['mc']:.1f}%")
-    k5.metric("CAC", f"${last['cac']:.2f}")
-    k6.metric("Margen EBITDA", f"{last['margen_ebitda']:.1f}%")
+    cols = st.columns(6)
+    cols[0].metric("Clientes", f"{last['clientes']:,}")
+    cols[1].metric("ARPU", f"${last['arpu']:.2f}")
+    cols[2].metric("CHURN", f"{last['churn']:.2f}%")
+    cols[3].metric("MC", f"{last['mc']:.1f}%")
+    cols[4].metric("CAC", f"${last['cac']:.2f}")
+    cols[5].metric("EBITDA", f"${last['ebitda']:,.0f}")
 
-    # 💸 Indicador de impacto: costo real por cliente perdido (LTV)
-    st.markdown("## 💥 Indicador de impacto financiero")
-    costo_perdida = float(last["ltv"]) if pd.notna(last["ltv"]) else 0.0
-    st.metric("💸 Costo real por cliente perdido", f"${costo_perdida:,.0f}")
+    st.markdown("### 💸 Costo real por cliente perdido")
+    st.metric("Costo real por cliente perdido", f"${last['ltv']:,.0f}")
 
-    # 📈 Evolución EBITDA
-    st.subheader("📈 Evolución del EBITDA (USD)")
-    st.altair_chart(
-        alt.Chart(df).mark_line(point=True, color="#00cc83").encode(
-            x="period:N",
-            y=alt.Y("ebitda:Q", title="EBITDA (USD)"),
-            tooltip=["period", "clientes", "arpu", "mc", "ebitda"]
-        ).properties(title="Rentabilidad operativa mensual del ISP"),
-        use_container_width=True
-    )
-
-    # 📋 Tabla resumen mensual
-    st.subheader("📋 Tabla resumen mensual")
-    st.dataframe(
-        df[["period", "clientes", "arpu", "churn", "mc", "cac", "ltv", "ebitda", "margen_ebitda", "ratio_ltv_cac"]]
-        .rename(columns={
-            "period": "Período", "clientes": "Clientes", "arpu": "ARPU (USD)", "churn": "CHURN (%)",
-            "mc": "MC (%)", "cac": "CAC (USD)", "ltv": "LTV (USD)", "ebitda": "EBITDA (USD)",
-            "margen_ebitda": "Margen EBITDA (%)", "ratio_ltv_cac": "LTV/CAC"
-        })
-        .style.format({
-            "Clientes": "{:,.0f}", "ARPU (USD)": "{:.2f}", "CHURN (%)": "{:.2f}", "MC (%)": "{:.1f}",
-            "CAC (USD)": "{:.2f}", "LTV (USD)": "{:.0f}", "EBITDA (USD)": "{:.0f}", "Margen EBITDA (%)": "{:.1f}",
-            "LTV/CAC": "{:.2f}"
-        }),
-        use_container_width=True
-    )
-
-    # 🔮 Proyecciones (selector + cálculo exacto mes a mes)
-    st.subheader("🔮 Proyecciones de crecimiento (cálculo preciso mensual)")
-    col_sel, col_btn = st.columns([2,1])
-    horizonte = col_sel.selectbox("Horizonte", [6, 12, 24], index=0, help="Seleccioná el período de proyección")
+    st.subheader("🔮 Proyección visual precisa")
+    col_sel, col_btn = st.columns([2, 1])
+    horizonte = col_sel.selectbox("Horizonte de proyección", [6, 12, 24], index=0)
     if col_btn.button("Calcular proyección"):
-        clientes_ini = float(last["clientes"])
         res = proyectar_mes_a_mes(
-            clientes_ini=clientes_ini,
-            churn_pct=float(last["churn"]),
-            arpu=float(last["arpu"]),
-            mc_pct=float(last["mc"]),
-            months=int(horizonte)
+            last["clientes"], last["churn"], last["arpu"], last["mc"], horizonte
         )
-
-        clientes_fin = res["clientes_finales"]
-        ingresos_brutos = res["total_ingresos"]
-        ingresos_netos = res["total_ingresos_netos"]
-        clientes_perdidos_total = res["total_perdidos"]
-        ingresos_perdidos_total = res["total_ingresos_perdidos"]
-
-        st.markdown(f"### 📅 Proyección a {horizonte} meses")
-        m1, m2, m3 = st.columns(3)
-        with m1:
-            st.metric(
-                "Clientes finales",
-                f"{clientes_fin:,.0f}",
-                f"-{(1 - (clientes_fin / clientes_ini)) * 100:.1f}%"
+        clientes_ini = last["clientes"]
+        st.markdown(f"## 📅 Proyección a {horizonte} meses")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown(
+                f"<h2 style='color:#e63946;'>📉 {res['total_perdidos']:.0f}</h2>"
+                f"<p style='font-size:15px;'>Clientes perdidos</p>"
+                f"<p style='color:gray;'>Clientes actuales: {clientes_ini:,.0f}</p>",
+                unsafe_allow_html=True,
             )
-            st.caption(f"📉 Clientes perdidos: **{clientes_perdidos_total:,.0f}**")
-        with m2:
-            st.metric("Ingresos brutos (precisos)", f"${ingresos_brutos:,.0f}")
-            st.caption(f"💔 Ingresos perdidos (brutos): **${ingresos_perdidos_total:,.0f}**")
-        with m3:
-            st.metric("Ingresos netos (precisos)", f"${ingresos_netos:,.0f}")
-            st.caption(f"💔 Ingresos perdidos (netos): **${(ingresos_perdidos_total * (last['mc']/100.0)):,.0f}**")
+        with c2:
+            st.markdown(
+                f"<h2 style='color:#f3722c;'>💔 ${res['total_ingresos_perdidos']:,.0f}</h2>"
+                f"<p style='font-size:15px;'>Ingresos perdidos</p>"
+                f"<p style='color:gray;'>Ingresos netos actuales: ${res['total_ingresos_netos']:,.0f}</p>",
+                unsafe_allow_html=True,
+            )
+        with c3:
+            st.markdown(
+                f"<h2 style='color:#00cc83;'>📈 {res['clientes_finales']:.0f}</h2>"
+                f"<p style='font-size:15px;'>Clientes finales</p>"
+                f"<p style='color:gray;'>Total proyección {horizonte} meses</p>",
+                unsafe_allow_html=True,
+            )
 
-        # Series para el gráfico
+        # Gráfico pérdidas
         meses = list(range(1, horizonte + 1))
         df_loss = pd.DataFrame({
             "Mes": meses,
-            "Clientes_perdidos": res["perdidos_mes"],
-            "Ingresos_perdidos": res["ingresos_perdidos_mes"]
-        })
-        # Pasamos a formato largo para evitar errores de Altair
-        df_long = df_loss.melt(id_vars="Mes", var_name="Serie", value_name="Valor")
-
-        st.markdown("### 📉 Evolución de pérdidas de clientes e ingresos")
+            "Clientes perdidos": res["perdidos_mes"],
+            "Ingresos perdidos": res["ingresos_perdidos_mes"],
+        }).melt(id_vars="Mes", var_name="Tipo", value_name="Valor")
         chart = (
-            alt.Chart(df_long)
+            alt.Chart(df_loss)
             .mark_line(point=True)
             .encode(
-                x=alt.X("Mes:Q", axis=alt.Axis(tickMinStep=1, title="Mes")),
-                y=alt.Y("Valor:Q", title="Valor"),
-                color=alt.Color("Serie:N", legend=alt.Legend(title="Serie")),
-                tooltip=["Mes", "Serie", alt.Tooltip("Valor:Q", format=",.0f")]
+                x=alt.X("Mes:Q"),
+                y=alt.Y("Valor:Q"),
+                color="Tipo:N",
+                tooltip=["Mes", "Tipo", "Valor"]
             )
             .properties(height=300)
         )
         st.altair_chart(chart, use_container_width=True)
 
 # =====================================
-# LOGIN / REGISTRO
+# LOGIN
 # =====================================
 st.title("📊 Dashboard ISP — Acceso")
 
 mode = st.sidebar.radio("Acción", ["Iniciar sesión", "Registrar usuario"])
 with st.sidebar.form("auth_form"):
-    email_input = st.text_input("Correo electrónico")
+    email = st.text_input("Correo electrónico")
     password = st.text_input("Contraseña", type="password")
     submitted = st.form_submit_button("Continuar")
     if submitted:
-        if not email_input or not password:
-            st.sidebar.error("Completá email y contraseña.")
-        elif mode == "Registrar usuario":
-            r = sign_up(email_input, password)
+        if mode == "Registrar usuario":
+            r = sign_up(email, password)
         else:
-            r = sign_in(email_input, password)
+            r = sign_in(email, password)
         if "error" in r:
             st.sidebar.error(r["error"]["message"])
         else:
@@ -390,19 +335,13 @@ with st.sidebar.form("auth_form"):
             st.sidebar.success("✅ Bienvenido.")
             st.rerun()
 
-# Reset password (lateral)
 if st.sidebar.button("🔑 Restaurar contraseña"):
-    if email_input:
-        if reset_password(email_input):
-            st.sidebar.success("📧 Correo de recuperación enviado.")
-        else:
-            st.sidebar.error("Error al enviar el correo.")
+    if email:
+        reset_password(email)
+        st.sidebar.success("📧 Correo de recuperación enviado.")
     else:
         st.sidebar.warning("Ingresá tu correo antes.")
 
-# =====================================
-# GATE
-# =====================================
 if "auth" not in st.session_state:
     st.stop()
 
@@ -414,9 +353,6 @@ if is_admin:
 else:
     st.sidebar.info(f"Usuario: {email}")
 
-# =====================================
-# ADMIN / USER DASHBOARD
-# =====================================
 if is_admin:
     st.header("👥 Panel de administración")
     users = list_auth_users()
@@ -429,9 +365,6 @@ if is_admin:
         if c3.button("Pro", key=f"p_{u['uid']}"): update_plan(u["uid"], "pro"); st.rerun()
         if c4.button("Premium", key=f"x_{u['uid']}"): update_plan(u["uid"], "premium"); st.rerun()
         if c5.button("Reset", key=f"r_{u['uid']}"):
-            if u["email"] and reset_password(u["email"]):
-                st.success(f"📧 Link enviado a {u['email']}")
-            else:
-                st.error(f"No se pudo enviar reset a {u['email'] or '(sin email)'}")
+            reset_password(u["email"]); st.success(f"📧 Reset enviado a {u['email']}")
 else:
     mostrar_dashboard_free(uid)
