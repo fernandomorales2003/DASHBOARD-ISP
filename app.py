@@ -129,7 +129,7 @@ def update_plan(uid, nuevo_plan):
     return True
 
 # =====================================
-# MÉTRICAS
+# MÉTRICAS (guardar / leer)
 # =====================================
 def save_metrics(uid, year, month, clientes, arpu, churn, mc, cac):
     period = f"{year}-{month:02d}"
@@ -174,7 +174,10 @@ def load_metrics(uid):
 # PROYECCIÓN (precisa mes a mes)
 # =====================================
 def proyectar_mes_a_mes(clientes_ini, churn_pct, arpu, mc_pct, months):
-    """Devuelve dict con series y totales: ingresos brutos (suma mensual), netos y pérdidas."""
+    """
+    Proyección precisa: cada mes calcula clientes, ingresos y pérdidas
+    y acumula los totales. Devuelve series y totales.
+    """
     churn_dec = churn_pct / 100.0
     mc_dec = mc_pct / 100.0
     clientes_mes = []
@@ -213,7 +216,7 @@ def proyectar_mes_a_mes(clientes_ini, churn_pct, arpu, mc_pct, months):
     }
 
 # =====================================
-# DASHBOARD FREE
+# DASHBOARD FREE (usuario)
 # =====================================
 def mostrar_dashboard_free(uid):
     st.header("🌱 Dashboard ISP — Versión FREE")
@@ -341,14 +344,13 @@ def mostrar_dashboard_free(uid):
             st.metric("Ingresos netos (precisos)", f"${ingresos_netos:,.0f}")
             st.caption(f"💔 Ingresos perdidos (netos): **${(ingresos_perdidos_total * (last['mc']/100.0)):,.0f}**")
 
-        # Series para el gráfico
+        # Series para el gráfico de pérdidas
         meses = list(range(1, horizonte + 1))
         df_loss = pd.DataFrame({
             "Mes": meses,
             "Clientes_perdidos": res["perdidos_mes"],
             "Ingresos_perdidos": res["ingresos_perdidos_mes"]
         })
-        # Pasamos a formato largo para evitar errores de Altair
         df_long = df_loss.melt(id_vars="Mes", var_name="Serie", value_name="Valor")
 
         st.markdown("### 📉 Evolución de pérdidas de clientes e ingresos")
