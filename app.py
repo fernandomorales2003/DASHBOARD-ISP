@@ -338,6 +338,8 @@ else:
 # =====================================
 # ADMIN / USER DASHBOARD SELECTION
 # =====================================
+from firebase_admin import firestore
+
 if is_admin:
     st.header("👥 Panel de administración")
     users = list_auth_users()
@@ -355,13 +357,15 @@ if is_admin:
             else:
                 st.error(f"No se pudo enviar reset a {u['email'] or '(sin email)'}")
 else:
-    # 🔍 Recuperar plan directamente desde Firestore (lectura confiable)
-    user_doc = firestore_request("GET", f"users/{uid}")
+    # 🔍 Lectura directa de Firestore con el SDK oficial
+    db = firestore.client()
+    user_ref = db.collection("users").document(uid)
+    user_doc = user_ref.get()
+
     plan = "free"
-    if user_doc and "fields" in user_doc:
-        fields = user_doc["fields"]
-        if "plan" in fields and "stringValue" in fields["plan"]:
-            plan = fields["plan"]["stringValue"]
+    if user_doc.exists:
+        data = user_doc.to_dict()
+        plan = data.get("plan", "free")
 
     st.sidebar.markdown(f"**Plan actual:** `{plan}`")
 
