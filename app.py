@@ -97,7 +97,6 @@ with left_col:
             st.altair_chart(chart, use_container_width=True)
             st.caption(f"{percent:.1f}% del total")
 
-
 # ---- 40%: GRÁFICO DE BARRAS (APORTE ARPU) ----
 with right_col:
     st.subheader("Aporte al ARPU por tipo de cliente")
@@ -124,26 +123,59 @@ with right_col:
     st.altair_chart(bars + text, use_container_width=True)
 
 # =======================
-# KPIs RESUMEN
+# FILA 2: INDICADORES CLAVE EN GRÁFICOS
 # =======================
 st.header("📈 Indicadores clave (simulados)")
 
+# Datos simulados
 arpu = df["Ingresos"].sum() / total_clientes
 churn = 2.3
-cac = 10.5
-mc = 60
-ebitda = df["Ingresos"].sum() * (mc / 100)
+clientes_actuales = total_clientes
+objetivo_arpu = 23
+max_churn = 3
+max_clientes = clientes_actuales + 500
 
-k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("Clientes", f"{total_clientes:,}")
-k2.metric("ARPU Promedio", f"${arpu:,.2f}")
-k3.metric("CHURN", f"{churn:.2f}%")
-k4.metric("CAC", f"${cac:,.2f}")
-k5.metric("Margen MC", f"{mc:.0f}%")
+indicadores = pd.DataFrame([
+    {"Indicador": "ARPU (USD)", "Actual": arpu, "Objetivo": objetivo_arpu},
+    {"Indicador": "CHURN (%)", "Actual": churn, "Objetivo": max_churn},
+    {"Indicador": "Clientes", "Actual": clientes_actuales, "Objetivo": max_clientes}
+])
 
+# Crear gráfico de barras horizontales
+st.subheader("📊 Comparativa de indicadores vs objetivos")
+chart_indicadores = (
+    alt.Chart(indicadores)
+    .transform_fold(
+        ["Actual", "Objetivo"],
+        as_=["Tipo", "Valor"]
+    )
+    .mark_bar(size=25)
+    .encode(
+        y=alt.Y("Indicador:N", title=None, sort=["ARPU (USD)", "CHURN (%)", "Clientes"]),
+        x=alt.X("Valor:Q", title="Valor"),
+        color=alt.Color("Tipo:N", scale=alt.Scale(domain=["Actual", "Objetivo"], range=["#00CC83", "#E0E0E0"])),
+        tooltip=["Indicador", "Tipo", alt.Tooltip("Valor:Q", format=".2f")]
+    )
+    .properties(height=180)
+)
+
+# Texto sobre las barras
+text_indicadores = chart_indicadores.mark_text(
+    align="left",
+    baseline="middle",
+    dx=3,
+    color="black"
+).encode(text=alt.Text("Valor:Q", format=".1f"))
+
+st.altair_chart(chart_indicadores + text_indicadores, use_container_width=True)
+
+# =======================
+# EBITDA FINAL
+# =======================
 st.markdown("---")
-
 st.subheader("💹 EBITDA y Participación por Segmento")
+
+mc = 60
 df["EBITDA"] = df["Ingresos"] * (mc / 100)
 bar2 = (
     alt.Chart(df)
