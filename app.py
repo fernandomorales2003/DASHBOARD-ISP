@@ -72,11 +72,10 @@ with left_col:
     col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns(5)
     cols = [col_p1, col_p2, col_p3, col_p4, col_p5]
 
-    for idx, row in enumerate(df.itertuples(index=False)):
-        data_row = row._asdict()
-        percent = data_row["% Clientes"]
-        plan = data_row["Plan"]
-        color = color_map[plan]
+    for idx, row in df.iterrows():
+        plan = row["Plan"]
+        percent = row["% Clientes"]
+        color = color_map.get(plan, "#999999")
 
         single_df = pd.DataFrame({
             "Etiqueta": [plan, "Resto"],
@@ -97,6 +96,7 @@ with left_col:
             st.markdown(f"**{plan}**")
             st.altair_chart(chart, use_container_width=True)
             st.caption(f"{percent:.1f}% del total")
+
 
 # ---- 40%: GRÁFICO DE BARRAS (APORTE ARPU) ----
 with right_col:
