@@ -72,13 +72,17 @@ with left_col:
     col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns(5)
     cols = [col_p1, col_p2, col_p3, col_p4, col_p5]
 
-    for idx, row in enumerate(df.itertuples()):
-        percent = row._3  # "% Clientes"
-        color = color_map[row.Plan]
+    for idx, row in enumerate(df.itertuples(index=False)):
+        data_row = row._asdict()
+        percent = data_row["% Clientes"]
+        plan = data_row["Plan"]
+        color = color_map[plan]
+
         single_df = pd.DataFrame({
-            "Etiqueta": [row.Plan, "Resto"],
+            "Etiqueta": [plan, "Resto"],
             "Valor": [percent, 100 - percent]
         })
+
         chart = (
             alt.Chart(single_df)
             .mark_arc(innerRadius=60)
@@ -88,8 +92,9 @@ with left_col:
             )
             .properties(height=180, width=180)
         )
+
         with cols[idx]:
-            st.markdown(f"**{row.Plan}**")
+            st.markdown(f"**{plan}**")
             st.altair_chart(chart, use_container_width=True)
             st.caption(f"{percent:.1f}% del total")
 
@@ -109,7 +114,6 @@ with right_col:
         .properties(height=400)
     )
 
-    # Texto del porcentaje dentro de las barras
     text = bars.mark_text(
         align="left",
         baseline="middle",
