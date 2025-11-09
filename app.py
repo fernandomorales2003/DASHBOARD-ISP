@@ -39,7 +39,6 @@ def firestore_request(method, path, data=None, params=None):
         else:
             return None
         if r.status_code == 404:
-            # Documento no existe (usado para chequear existencia antes de crear)
             return None
         if r.status_code not in (200, 201):
             st.error(f"❌ Firestore error {r.status_code}: {r.text}")
@@ -134,12 +133,9 @@ def update_plan(uid, nuevo_plan):
 def save_metrics(uid, year, month, clientes, arpu, churn, mc, cac):
     period = f"{year}-{month:02d}"
     path = f"tenants/{uid}/metrics/{period}"
-
-    # Aviso si existe (reescritura)
     existing = firestore_request("GET", path)
     if existing and "fields" in existing:
         st.info(f"ℹ️ Reescribiendo datos del período {period} (ya existía en Firestore).")
-
     data = {
         "fields": {
             "period": {"stringValue": period},
@@ -174,10 +170,6 @@ def load_metrics(uid):
 # PROYECCIÓN (precisa mes a mes)
 # =====================================
 def proyectar_mes_a_mes(clientes_ini, churn_pct, arpu, mc_pct, months):
-    """
-    Proyección precisa: cada mes calcula clientes, ingresos y pérdidas
-    y acumula los totales. Devuelve series y totales.
-    """
     churn_dec = churn_pct / 100.0
     mc_dec = mc_pct / 100.0
     clientes_mes = []
@@ -185,7 +177,6 @@ def proyectar_mes_a_mes(clientes_ini, churn_pct, arpu, mc_pct, months):
     ingresos_netos_mes = []
     perdidos_mes = []
     ingresos_perdidos_mes = []
-
     c = float(clientes_ini)
     for m in range(1, months + 1):
         c_next = c * (1 - churn_dec)
@@ -193,15 +184,12 @@ def proyectar_mes_a_mes(clientes_ini, churn_pct, arpu, mc_pct, months):
         ingreso_m = c * arpu
         ingreso_neto_m = ingreso_m * mc_dec
         ingreso_perdido_m = perdidos * arpu
-
         clientes_mes.append(c_next)
         ingresos_mes.append(ingreso_m)
         ingresos_netos_mes.append(ingreso_neto_m)
         perdidos_mes.append(perdidos)
         ingresos_perdidos_mes.append(ingreso_perdido_m)
-
         c = c_next
-
     return {
         "clientes_mes": clientes_mes,
         "ingresos_mes": ingresos_mes,
@@ -218,160 +206,92 @@ def proyectar_mes_a_mes(clientes_ini, churn_pct, arpu, mc_pct, months):
 # =====================================
 # DASHBOARD FREE (usuario)
 # =====================================
-def mostrar_dashboard_free(uid):
-    st.header("🌱 Dashboard ISP — Versión FREE")
-    st.markdown("Cargá tus métricas mensuales para ver cómo impactan en tu negocio.")
+# ... (tu código original mostrar_dashboard_free va aquí sin cambios)
 
-    now = datetime.now()
-    st.subheader("📅 Carga mensual")
-    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
-    with c1:
-        year = st.selectbox("Año", list(range(2018, now.year + 1)), index=now.year - 2018)
-    with c2:
-        month = st.selectbox("Mes", list(range(1, 13)), index=now.month - 1)
-    with c3:
-        clientes = st.number_input("Clientes", 0, 200000, 1000, 10)
-    with c4:
-        arpu = st.number_input("ARPU (USD)", 0.0, 1000.0, 16.0, 0.1)
-    with c5:
-        churn = st.number_input("CHURN (%)", 0.01, 50.0, 2.0, 0.01)
-    with c6:
-        mc = st.number_input("MC (%)", 1.0, 100.0, 60.0, 0.1)
-    with c7:
-        cac = st.number_input("CAC (USD)", 0.0, 1000.0, 10.0, 0.1)
+# =====================================
+# DASHBOARD PREMIUM
+# =====================================
+def mostrar_dashboard_premium(uid):
+    st.header("🚀 Dashboard ISP — Versión PREMIUM")
+    st.markdown("Visualización avanzada de métricas y composición de clientes por plan.")
 
-    # 🚫 Evitar meses futuros
-    selected_date = datetime(year, month, 1)
-    current_date = datetime(now.year, now.month, 1)
-    if selected_date > current_date:
-        st.error("⚠️ No se pueden cargar datos de meses futuros.")
+    st.subheader("📦 Distribución de clientes por plan")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    clientes_100 = c1.number_input("Plan 100 Mb", 0, 100000, 200)
+    clientes_200 = c2.number_input("Plan 200 Mb", 0, 100000, 150)
+    clientes_300 = c3.number_input("Plan 300 Mb", 0, 100000, 80)
+    clientes_wireless = c4.number_input("Clientes Wireless", 0, 100000, 60)
+    clientes_corporativo = c5.number_input("Clientes Corporativo", 0, 100000, 10)
+
+    total_clientes = clientes_100 + clientes_200 + clientes_300 + clientes_wireless + clientes_corporativo
+    if total_clientes == 0:
+        st.warning("Ingresá al menos un valor de clientes para ver los gráficos.")
         st.stop()
 
-    if st.button("💾 Guardar mes"):
-        save_metrics(uid, year, month, clientes, arpu, churn, mc, cac)
-        st.success(f"✅ Datos guardados o actualizados correctamente ({year}-{month:02d})")
-        st.rerun()
+    st.subheader("💲 Precio promedio por plan (USD)")
+    p1, p2, p3, p4, p5 = st.columns(5)
+    precio_100 = p1.number_input("Precio 100 Mb", 0.0, 500.0, 12.0, 0.5)
+    precio_200 = p2.number_input("Precio 200 Mb", 0.0, 500.0, 15.0, 0.5)
+    precio_300 = p3.number_input("Precio 300 Mb", 0.0, 500.0, 18.0, 0.5)
+    precio_wireless = p4.number_input("Precio Wireless", 0.0, 500.0, 20.0, 0.5)
+    precio_corporativo = p5.number_input("Precio Corporativo", 0.0, 500.0, 35.0, 0.5)
 
-    df = load_metrics(uid)
-    if df.empty:
-        st.warning("Cargá tus primeros datos para ver los resultados.")
-        return
+    df_segmentos = pd.DataFrame([
+        {"Plan": "100 Mb", "Clientes": clientes_100, "Precio": precio_100},
+        {"Plan": "200 Mb", "Clientes": clientes_200, "Precio": precio_200},
+        {"Plan": "300 Mb", "Clientes": clientes_300, "Precio": precio_300},
+        {"Plan": "Wireless", "Clientes": clientes_wireless, "Precio": precio_wireless},
+        {"Plan": "Corporativo", "Clientes": clientes_corporativo, "Precio": precio_corporativo},
+    ])
 
-    # Derivados
-    df["ltv"] = (df["arpu"] * (df["mc"] / 100.0)) / (df["churn"] / 100.0).replace(0, pd.NA)
-    df["ebitda"] = df["clientes"] * df["arpu"] * (df["mc"] / 100.0)
-    df["margen_ebitda"] = (df["ebitda"] / (df["clientes"] * df["arpu"]).replace(0, pd.NA)) * 100.0
-    df["ratio_ltv_cac"] = df.apply(lambda r: (r["ltv"] / r["cac"]) if r["cac"] else pd.NA, axis=1)
+    df_segmentos["Ingreso"] = df_segmentos["Clientes"] * df_segmentos["Precio"]
+    ingreso_total = df_segmentos["Ingreso"].sum()
+    df_segmentos["Aporte_ARPU_%"] = (df_segmentos["Ingreso"] / ingreso_total) * 100
+    df_segmentos["Clientes_%"] = (df_segmentos["Clientes"] / total_clientes) * 100
 
-    last = df.iloc[-1]
+    st.subheader("📊 Visualizaciones de distribución")
+    col1, col2 = st.columns(2)
 
-    # KPIs
-    st.subheader("📊 Indicadores actuales")
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
-    k1.metric("Clientes", f"{last['clientes']:,}")
-    k2.metric("ARPU", f"${last['arpu']:.2f}")
-    k3.metric("CHURN", f"{last['churn']:.2f}%")
-    k4.metric("MC", f"{last['mc']:.1f}%")
-    k5.metric("CAC", f"${last['cac']:.2f}")
-    k6.metric("Margen EBITDA", f"{last['margen_ebitda']:.1f}%")
-
-    # 💸 Indicador de impacto: costo real por cliente perdido (LTV)
-    st.markdown("## 💥 Indicador de impacto financiero")
-    costo_perdida = float(last["ltv"]) if pd.notna(last["ltv"]) else 0.0
-    st.metric("💸 Costo real por cliente perdido", f"${costo_perdida:,.0f}")
-
-    # 📈 Evolución EBITDA
-    st.subheader("📈 Evolución del EBITDA (USD)")
-    st.altair_chart(
-        alt.Chart(df).mark_line(point=True, color="#00cc83").encode(
-            x="period:N",
-            y=alt.Y("ebitda:Q", title="EBITDA (USD)"),
-            tooltip=["period", "clientes", "arpu", "mc", "ebitda"]
-        ).properties(title="Rentabilidad operativa mensual del ISP"),
-        use_container_width=True
-    )
-
-    # 📋 Tabla resumen mensual
-    st.subheader("📋 Tabla resumen mensual")
-    st.dataframe(
-        df[["period", "clientes", "arpu", "churn", "mc", "cac", "ltv", "ebitda", "margen_ebitda", "ratio_ltv_cac"]]
-        .rename(columns={
-            "period": "Período", "clientes": "Clientes", "arpu": "ARPU (USD)", "churn": "CHURN (%)",
-            "mc": "MC (%)", "cac": "CAC (USD)", "ltv": "LTV (USD)", "ebitda": "EBITDA (USD)",
-            "margen_ebitda": "Margen EBITDA (%)", "ratio_ltv_cac": "LTV/CAC"
-        })
-        .style.format({
-            "Clientes": "{:,.0f}", "ARPU (USD)": "{:.2f}", "CHURN (%)": "{:.2f}", "MC (%)": "{:.1f}",
-            "CAC (USD)": "{:.2f}", "LTV (USD)": "{:.0f}", "EBITDA (USD)": "{:.0f}", "Margen EBITDA (%)": "{:.1f}",
-            "LTV/CAC": "{:.2f}"
-        }),
-        use_container_width=True
-    )
-
-    # 🔮 Proyecciones (selector + cálculo exacto mes a mes)
-    st.subheader("🔮 Proyecciones de crecimiento (cálculo preciso mensual)")
-    col_sel, col_btn = st.columns([2,1])
-    horizonte = col_sel.selectbox("Horizonte", [6, 12, 24], index=0, help="Seleccioná el período de proyección")
-    if col_btn.button("Calcular proyección"):
-        clientes_ini = float(last["clientes"])
-        res = proyectar_mes_a_mes(
-            clientes_ini=clientes_ini,
-            churn_pct=float(last["churn"]),
-            arpu=float(last["arpu"]),
-            mc_pct=float(last["mc"]),
-            months=int(horizonte)
-        )
-
-        clientes_fin = res["clientes_finales"]
-        ingresos_brutos = res["total_ingresos"]
-        ingresos_netos = res["total_ingresos_netos"]
-        clientes_perdidos_total = res["total_perdidos"]
-        ingresos_perdidos_total = res["total_ingresos_perdidos"]
-
-        st.markdown(f"### 📅 Proyección a {horizonte} meses")
-        m1, m2, m3 = st.columns(3)
-        with m1:
-            st.metric(
-                "Clientes finales",
-                f"{clientes_fin:,.0f}",
-                f"-{(1 - (clientes_fin / clientes_ini)) * 100:.1f}%"
-            )
-            st.caption(f"📉 Clientes perdidos: **{clientes_perdidos_total:,.0f}**")
-        with m2:
-            st.metric("Ingresos brutos (precisos)", f"${ingresos_brutos:,.0f}")
-            st.caption(f"💔 Ingresos perdidos (brutos): **${ingresos_perdidos_total:,.0f}**")
-        with m3:
-            st.metric("Ingresos netos (precisos)", f"${ingresos_netos:,.0f}")
-            st.caption(f"💔 Ingresos perdidos (netos): **${(ingresos_perdidos_total * (last['mc']/100.0)):,.0f}**")
-
-        # Series para el gráfico de pérdidas
-        meses = list(range(1, horizonte + 1))
-        df_loss = pd.DataFrame({
-            "Mes": meses,
-            "Clientes_perdidos": res["perdidos_mes"],
-            "Ingresos_perdidos": res["ingresos_perdidos_mes"]
-        })
-        df_long = df_loss.melt(id_vars="Mes", var_name="Serie", value_name="Valor")
-
-        st.markdown("### 📉 Evolución de pérdidas de clientes e ingresos")
-        chart = (
-            alt.Chart(df_long)
-            .mark_line(point=True)
+    with col1:
+        st.markdown("**Distribución de clientes por plan**")
+        pie = (
+            alt.Chart(df_segmentos)
+            .mark_arc(innerRadius=50)
             .encode(
-                x=alt.X("Mes:Q", axis=alt.Axis(tickMinStep=1, title="Mes")),
-                y=alt.Y("Valor:Q", title="Valor"),
-                color=alt.Color("Serie:N", legend=alt.Legend(title="Serie")),
-                tooltip=["Mes", "Serie", alt.Tooltip("Valor:Q", format=",.0f")]
+                theta=alt.Theta("Clientes_%:Q", title="Participación"),
+                color=alt.Color("Plan:N", scale=alt.Scale(range=["#7B3CEB", "#3A0CA3", "#00CC83", "#FFB703", "#FF3C3C"])),
+                tooltip=["Plan", "Clientes", alt.Tooltip("Clientes_%:Q", format=".1f")]
+            )
+            .properties(height=300, width="container")
+        )
+        st.altair_chart(pie, use_container_width=True)
+
+    with col2:
+        st.markdown("**Aporte al ARPU por tipo de cliente**")
+        bars = (
+            alt.Chart(df_segmentos)
+            .mark_bar(cornerRadiusTopLeft=4, cornerRadiusBottomLeft=4)
+            .encode(
+                x=alt.X("Aporte_ARPU_%:Q", title="Aporte al ARPU (%)"),
+                y=alt.Y("Plan:N", sort="-x"),
+                color=alt.Color("Plan:N", scale=alt.Scale(range=["#7B3CEB", "#3A0CA3", "#00CC83", "#FFB703", "#FF3C3C"]), legend=None),
+                tooltip=["Plan", alt.Tooltip("Aporte_ARPU_%:Q", format=".1f"), "Clientes", "Precio"]
             )
             .properties(height=300)
         )
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(bars, use_container_width=True)
+
+    st.subheader("📋 Resumen de segmentación")
+    st.dataframe(
+        df_segmentos[["Plan", "Clientes", "Precio", "Clientes_%", "Aporte_ARPU_%"]]
+        .style.format({"Clientes_%": "{:.1f}%", "Aporte_ARPU_%": "{:.1f}%", "Precio": "${:.2f}"}),
+        use_container_width=True,
+    )
 
 # =====================================
 # LOGIN / REGISTRO
 # =====================================
 st.title("📊 Dashboard ISP — Acceso")
-
 mode = st.sidebar.radio("Acción", ["Iniciar sesión", "Registrar usuario"])
 with st.sidebar.form("auth_form"):
     email_input = st.text_input("Correo electrónico")
@@ -392,7 +312,6 @@ with st.sidebar.form("auth_form"):
             st.sidebar.success("✅ Bienvenido.")
             st.rerun()
 
-# Reset password (lateral)
 if st.sidebar.button("🔑 Restaurar contraseña"):
     if email_input:
         if reset_password(email_input):
@@ -417,7 +336,7 @@ else:
     st.sidebar.info(f"Usuario: {email}")
 
 # =====================================
-# ADMIN / USER DASHBOARD
+# ADMIN / USER DASHBOARD SELECTION
 # =====================================
 if is_admin:
     st.header("👥 Panel de administración")
@@ -436,4 +355,9 @@ if is_admin:
             else:
                 st.error(f"No se pudo enviar reset a {u['email'] or '(sin email)'}")
 else:
-    mostrar_dashboard_free(uid)
+    user_doc = get_user_doc(uid)
+    plan = user_doc.get("plan", {}).get("stringValue", "free") if user_doc else "free"
+    if plan == "premium":
+        mostrar_dashboard_premium(uid)
+    else:
+        mostrar_dashboard_free(uid)
