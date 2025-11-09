@@ -206,7 +206,7 @@ def proyectar_mes_a_mes(clientes_ini, churn_pct, arpu, mc_pct, months):
 # =====================================
 # DASHBOARD FREE (usuario)
 # =====================================
-# ... (tu código original mostrar_dashboard_free va aquí sin cambios)
+# (tu función mostrar_dashboard_free original aquí sin cambios)
 
 # =====================================
 # DASHBOARD PREMIUM
@@ -355,9 +355,17 @@ if is_admin:
             else:
                 st.error(f"No se pudo enviar reset a {u['email'] or '(sin email)'}")
 else:
-    user_doc = get_user_doc(uid)
-    plan = user_doc.get("plan", {}).get("stringValue", "free") if user_doc else "free"
-    if plan == "premium":
+    # 🔍 Recuperar plan directamente desde Firestore (lectura confiable)
+    user_doc = firestore_request("GET", f"users/{uid}")
+    plan = "free"
+    if user_doc and "fields" in user_doc:
+        fields = user_doc["fields"]
+        if "plan" in fields and "stringValue" in fields["plan"]:
+            plan = fields["plan"]["stringValue"]
+
+    st.sidebar.markdown(f"**Plan actual:** `{plan}`")
+
+    if plan.lower() == "premium":
         mostrar_dashboard_premium(uid)
     else:
         mostrar_dashboard_free(uid)
