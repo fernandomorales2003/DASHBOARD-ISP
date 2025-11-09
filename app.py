@@ -58,7 +58,7 @@ st.header("📊 Visualizaciones")
 
 left_col, right_col = st.columns([0.6, 0.4])  # 60% / 40%
 
-# ---- 60%: GRÁFICOS CIRCULARES INDEPENDIENTES ----
+# ---- 60%: GRÁFICOS CIRCULARES UNO AL LADO DEL OTRO ----
 with left_col:
     st.subheader("Distribución de clientes por plan (individual)")
     color_map = {
@@ -69,11 +69,14 @@ with left_col:
         "Corporativo": "#FF3C3C"
     }
 
-    for _, row in df.iterrows():
-        percent = row["% Clientes"]
-        color = color_map[row["Plan"]]
+    col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns(5)
+    cols = [col_p1, col_p2, col_p3, col_p4, col_p5]
+
+    for idx, row in enumerate(df.itertuples()):
+        percent = row._3  # "% Clientes"
+        color = color_map[row.Plan]
         single_df = pd.DataFrame({
-            "Etiqueta": [row["Plan"], "Resto"],
+            "Etiqueta": [row.Plan, "Resto"],
             "Valor": [percent, 100 - percent]
         })
         chart = (
@@ -85,8 +88,10 @@ with left_col:
             )
             .properties(height=180, width=180)
         )
-        st.markdown(f"**{row['Plan']} — {percent:.1f}% del total**")
-        st.altair_chart(chart, use_container_width=False)
+        with cols[idx]:
+            st.markdown(f"**{row.Plan}**")
+            st.altair_chart(chart, use_container_width=True)
+            st.caption(f"{percent:.1f}% del total")
 
 # ---- 40%: GRÁFICO DE BARRAS (APORTE ARPU) ----
 with right_col:
@@ -104,6 +109,7 @@ with right_col:
         .properties(height=400)
     )
 
+    # Texto del porcentaje dentro de las barras
     text = bars.mark_text(
         align="left",
         baseline="middle",
