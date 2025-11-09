@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
+import math
 
 st.set_page_config(page_title="Dashboard ISP — Vista Premium", layout="wide")
 
@@ -64,86 +65,13 @@ clientes_perdidos = total_clientes * (churn / 100)
 ingresos_perdidos = clientes_perdidos * arpu
 
 # =======================
-# FILA DE TARJETAS (INDICADORES VISUALES)
-# =======================
-st.markdown("## 💡 Indicadores financieros (vista tarjetas)")
-
-colA, colB, colC, colD = st.columns(4)
-
-# Estilos generales
-card_style = """
-background: linear-gradient(135deg, {color1}, {color2});
-padding: 25px;
-border-radius: 15px;
-text-align: center;
-color: white;
-font-weight: bold;
-box-shadow: 0px 4px 10px rgba(0,0,0,0.2);
-"""
-
-# --- TARJETA 1: ARPU ---
-with colA:
-    st.markdown(
-        f"""
-        <div style="{card_style.format(color1='#4facfe', color2='#00f2fe')}">
-            <h3>ARPU Actual</h3>
-            <h1 style='font-size:48px;'>${arpu:,.2f}</h1>
-            <p>Objetivo: <b>$23</b></p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-# --- TARJETA 2: CHURN RATE ---
-with colB:
-    st.markdown(
-        f"""
-        <div style="{card_style.format(color1='#f7971e', color2='#ffd200')}">
-            <h3>CHURN RATE</h3>
-            <h1 style='font-size:48px;'>{churn:.2f}%</h1>
-            <p>Clientes perdidos: <b>{clientes_perdidos:,.0f}</b><br>
-            Ingresos perdidos: <b>${ingresos_perdidos:,.0f}</b></p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-# --- TARJETA 3: LTV/CAC ---
-alert_color = "#4CAF50" if ltv_cac >= 3 else ("#FFA500" if ltv_cac >= 2 else "#FF3C3C")
-with colC:
-    st.markdown(
-        f"""
-        <div style="{card_style.format(color1='#a18cd1', color2='#fbc2eb')}">
-            <h3>LTV / CAC</h3>
-            <h1 style='font-size:48px; color:{alert_color};'>{ltv_cac:.2f}x</h1>
-            <p>Alarma si &lt; 3x</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-# --- TARJETA 4: CLIENTES TOTALES ---
-with colD:
-    st.markdown(
-        f"""
-        <div style="{card_style.format(color1='#43cea2', color2='#185a9d')}">
-            <h3>Clientes Totales</h3>
-            <h1 style='font-size:48px;'>{total_clientes:,}</h1>
-            <p>Objetivo +500 clientes</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-# =======================
-# GRÁFICOS ORIGINALES
+# FILA 1 - VISUALIZACIONES PRINCIPALES
 # =======================
 st.markdown("---")
 st.header("📊 Visualizaciones principales")
 
-left_col, right_col = st.columns([0.6, 0.4])  # 60% / 40%
+left_col, right_col = st.columns([0.6, 0.4])
 
-# ---- 60%: GRÁFICOS CIRCULARES UNO AL LADO DEL OTRO ----
 with left_col:
     st.subheader("Distribución de clientes por plan (individual)")
     color_map = {
@@ -182,7 +110,6 @@ with left_col:
             st.altair_chart(chart, use_container_width=True)
             st.caption(f"{percent:.1f}% del total")
 
-# ---- 40%: GRÁFICO DE BARRAS (APORTE ARPU) ----
 with right_col:
     st.subheader("Aporte al ARPU por tipo de cliente")
     bars = (
@@ -208,24 +135,75 @@ with right_col:
     st.altair_chart(bars + text, use_container_width=True)
 
 # =======================
-# EBITDA FINAL
+# FILA 2 - TARJETAS + CLIENTES PERDIDOS + PROYECCIÓN
 # =======================
 st.markdown("---")
-st.subheader("💹 EBITDA y Participación por Segmento")
-df["EBITDA"] = df["Ingresos"] * (mc / 100)
-bar2 = (
-    alt.Chart(df)
-    .mark_bar()
-    .encode(
-        x=alt.X("Plan:N", sort="-y"),
-        y=alt.Y("EBITDA:Q", title="EBITDA (USD)"),
-        color=alt.Color("Plan:N", legend=None,
-                        scale=alt.Scale(domain=list(color_map.keys()), range=list(color_map.values()))),
-        tooltip=["Plan", alt.Tooltip("EBITDA:Q", format=",.0f"), "Clientes"]
+st.header("📈 Indicadores y Proyecciones")
+
+colA, colB, colC = st.columns(3)
+
+# --- Columna 1: Tarjetas (en bloque vertical) ---
+with colA:
+    st.markdown("#### 💡 Indicadores Financieros")
+    card_style = """
+    background: linear-gradient(135deg, {color1}, {color2});
+    padding: 20px;
+    border-radius: 15px;
+    text-align: center;
+    color: white;
+    font-weight: bold;
+    margin-bottom: 10px;
+    """
+    st.markdown(f"<div style='{card_style.format(color1='#4facfe', color2='#00f2fe')}'><h4>ARPU</h4><h2>${arpu:,.2f}</h2></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='{card_style.format(color1='#f7971e', color2='#ffd200')}'><h4>CHURN</h4><h2>{churn:.2f}%</h2><p>{clientes_perdidos:,.0f} clientes perdidos</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='{card_style.format(color1='#a18cd1', color2='#fbc2eb')}'><h4>LTV/CAC</h4><h2>{ltv_cac:.2f}x</h2></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='{card_style.format(color1='#43cea2', color2='#185a9d')}'><h4>Clientes Totales</h4><h2>{total_clientes:,}</h2></div>", unsafe_allow_html=True)
+
+# --- Columna 2: Clientes perdidos por plan ---
+with colB:
+    st.markdown("#### 📉 Clientes perdidos por plan")
+    df_perdidos = df.copy()
+    df_perdidos["Perdidos"] = df_perdidos["Clientes"] * (churn / 100)
+
+    pie = (
+        alt.Chart(df_perdidos)
+        .mark_arc(innerRadius=60)
+        .encode(
+            theta=alt.Theta("Perdidos:Q"),
+            color=alt.Color("Plan:N", scale=alt.Scale(domain=list(color_map.keys()), range=list(color_map.values()))),
+            tooltip=["Plan", alt.Tooltip("Perdidos:Q", format=",.0f")]
+        )
+        .properties(height=300)
     )
-    .properties(height=350)
-)
-st.altair_chart(bar2, use_container_width=True)
+    st.altair_chart(pie, use_container_width=True)
 
-st.markdown("📊 **Dashboard demo listo para presentación (vista Premium).**")
+# --- Columna 3: Proyecciones (semi-donas horizontales) ---
+with colC:
+    st.markdown("#### 🔮 Proyecciones")
+    import numpy as np
 
+    def semicircular_chart(label, porcentaje, color1, color2):
+        chart_df = pd.DataFrame({"angle": [porcentaje, 100 - porcentaje], "tipo": [label, "Restante"]})
+        return (
+            alt.Chart(chart_df)
+            .mark_arc(innerRadius=50, outerRadius=80)
+            .encode(
+                theta=alt.Theta("angle:Q", stack=True),
+                color=alt.Color("tipo:N", scale=alt.Scale(range=[color1, "#E0E0E0"]), legend=None)
+            )
+            .properties(width=120, height=80)
+        )
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.markdown("**Clientes Proy.**")
+        st.altair_chart(semicircular_chart("Clientes", 85, "#4facfe", "#00f2fe"), use_container_width=True)
+
+    with c2:
+        st.markdown("**ARPU Proy.**")
+        st.altair_chart(semicircular_chart("ARPU", 88, "#a18cd1", "#fbc2eb"), use_container_width=True)
+
+    with c3:
+        st.markdown("**Ingresos Perdidos**")
+        st.altair_chart(semicircular_chart("Ingresos", 92, "#FF3C3C", "#FFB703"), use_container_width=True)
