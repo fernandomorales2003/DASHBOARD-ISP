@@ -128,7 +128,7 @@ st.header("Proyecciones")
 
 colA, colB, colC = st.columns(3)
 
-# --- Columna 1: Indicadores (mantiene las tarjetas con más margen) ---
+# --- Columna 1: Indicadores financieros ---
 with colA:
     st.markdown("#### Indicadores financieros")
 
@@ -217,11 +217,11 @@ with colB:
     )
     st.altair_chart(pie, use_container_width=True)
 
-# --- Columna 3: Proyecciones (Half Pie Charts) ---
+# --- Columna 3: Proyecciones con Half Pie Charts ---
 with colC:
     st.markdown("#### Proyecciones a futuro")
 
-    horizonte = st.selectbox("Horizonte de proyección", [6, 12, 24], index=1, key="horizonte")
+    horizonte = st.selectbox("Horizonte de proyección", [6, 12, 24], index=1)
 
     def proyectar(clientes_ini, churn_pct, arpu_ini, months):
         churn_dec = churn_pct / 100
@@ -230,11 +230,10 @@ with colC:
             c = c * (1 - churn_dec)
         perdidos = clientes_ini - c
         ingresos_perdidos = perdidos * arpu_ini
-        return c, ingresos_perdidos, arpu_ini  # mantenemos ARPU fijo como base
+        return c, ingresos_perdidos, arpu_ini
 
     clientes_proj, ingresos_perdidos_proj, arpu_proj = proyectar(total_clientes, churn, arpu, horizonte)
 
-    # helper para half pie
     def half_pie_chart(valor, total, titulo, color):
         porcentaje = (valor / total) * 100 if total > 0 else 0
         df_chart = pd.DataFrame({"categoria": [titulo, "resto"], "valor": [porcentaje, 100 - porcentaje]})
@@ -245,17 +244,18 @@ with colC:
                 theta=alt.Theta("valor:Q", stack=True),
                 color=alt.Color("categoria:N", scale=alt.Scale(range=[color, "#E0E0E0"]), legend=None),
             )
-            .properties(width=200, height=100)
+            .properties(width=260, height=130)
+            .configure_view(strokeWidth=0)
+        ).transform_calculate(
+            startAngle="PI",
+            endAngle="2*PI"
         )
         st.markdown(f"**{titulo}** — {valor:,.0f} ({porcentaje:.1f}%)")
         st.altair_chart(chart, use_container_width=False)
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        half_pie_chart(clientes_proj, total_clientes, "Clientes Proyectados", "#6D28D9")
-    with c2:
-        half_pie_chart(ingresos_perdidos_proj, ingresos_perdidos * 2, "Ingresos Perdidos", "#3B82F6")
-    with c3:
-        half_pie_chart(arpu_proj, arpu * 1.3, "ARPU Proyectado", "#312E81")
+    # Un gráfico debajo del otro
+    half_pie_chart(clientes_proj, total_clientes, "Clientes Proyectados", "#6D28D9")
+    half_pie_chart(ingresos_perdidos_proj, ingresos_perdidos * 2, "Ingresos Perdidos", "#3B82F6")
+    half_pie_chart(arpu_proj, arpu * 1.3, "ARPU Proyectado", "#312E81")
 
 st.markdown("📊 **Dashboard demo listo para presentación (vista Premium).**")
