@@ -52,41 +52,66 @@ df["% Clientes"] = (df["Clientes"] / total_clientes) * 100
 df["% Aporte ARPU"] = (df["Ingresos"] / df["Ingresos"].sum()) * 100
 
 # =======================
-# GRÁFICOS
+# LAYOUT DE GRÁFICOS
 # =======================
 st.header("📊 Visualizaciones")
 
-c1, c2 = st.columns(2)
+left_col, right_col = st.columns([0.6, 0.4])  # 60% / 40%
 
-with c1:
-    st.subheader("Distribución de clientes por plan")
-    pie = (
-        alt.Chart(df)
-        .mark_arc(innerRadius=60)
-        .encode(
-            theta=alt.Theta("% Clientes:Q", title="Participación"),
-            color=alt.Color("Plan:N", scale=alt.Scale(range=["#7B3CEB", "#3A0CA3", "#00CC83", "#FFB703", "#FF3C3C"])),
-            tooltip=["Plan", "Clientes", alt.Tooltip("% Clientes:Q", format=".1f")]
+# ---- 60%: GRÁFICOS CIRCULARES INDEPENDIENTES ----
+with left_col:
+    st.subheader("Distribución de clientes por plan (individual)")
+    color_map = {
+        "100 Mb": "#7B3CEB",
+        "200 Mb": "#3A0CA3",
+        "300 Mb": "#00CC83",
+        "Wireless": "#FFB703",
+        "Corporativo": "#FF3C3C"
+    }
+
+    for _, row in df.iterrows():
+        percent = row["% Clientes"]
+        color = color_map[row["Plan"]]
+        single_df = pd.DataFrame({
+            "Etiqueta": [row["Plan"], "Resto"],
+            "Valor": [percent, 100 - percent]
+        })
+        chart = (
+            alt.Chart(single_df)
+            .mark_arc(innerRadius=60)
+            .encode(
+                theta=alt.Theta("Valor:Q", stack=True),
+                color=alt.Color("Etiqueta:N", scale=alt.Scale(range=[color, "#E0E0E0"]), legend=None),
+            )
+            .properties(height=180, width=180)
         )
-        .properties(height=300)
-    )
-    st.altair_chart(pie, use_container_width=True)
+        st.markdown(f"**{row['Plan']} — {percent:.1f}% del total**")
+        st.altair_chart(chart, use_container_width=False)
 
-with c2:
+# ---- 40%: GRÁFICO DE BARRAS (APORTE ARPU) ----
+with right_col:
     st.subheader("Aporte al ARPU por tipo de cliente")
-    bar = (
+    bars = (
         alt.Chart(df)
         .mark_bar(cornerRadiusTopLeft=6, cornerRadiusBottomLeft=6)
         .encode(
             x=alt.X("% Aporte ARPU:Q", title="Aporte al ARPU (%)"),
             y=alt.Y("Plan:N", sort="-x"),
             color=alt.Color("Plan:N", legend=None,
-                            scale=alt.Scale(range=["#7B3CEB", "#3A0CA3", "#00CC83", "#FFB703", "#FF3C3C"])),
+                            scale=alt.Scale(domain=list(color_map.keys()), range=list(color_map.values()))),
             tooltip=["Plan", alt.Tooltip("% Aporte ARPU:Q", format=".1f"), "Clientes", "Precio"]
         )
-        .properties(height=300)
+        .properties(height=400)
     )
-    st.altair_chart(bar, use_container_width=True)
+
+    text = bars.mark_text(
+        align="left",
+        baseline="middle",
+        dx=3,
+        color="white"
+    ).encode(text=alt.Text("% Aporte ARPU:Q", format=".1f"))
+
+    st.altair_chart(bars + text, use_container_width=True)
 
 # =======================
 # KPIs RESUMEN
@@ -117,7 +142,7 @@ bar2 = (
         x=alt.X("Plan:N", sort="-y"),
         y=alt.Y("EBITDA:Q", title="EBITDA (USD)"),
         color=alt.Color("Plan:N", legend=None,
-                        scale=alt.Scale(range=["#7B3CEB", "#3A0CA3", "#00CC83", "#FFB703", "#FF3C3C"])),
+                        scale=alt.Scale(domain=list(color_map.keys()), range=list(color_map.values()))),
         tooltip=["Plan", alt.Tooltip("EBITDA:Q", format=",.0f"), "Clientes"]
     )
     .properties(height=350)
