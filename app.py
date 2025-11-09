@@ -63,13 +63,11 @@ df["% Aporte ARPU"] = (df["Ingresos"] / df["Ingresos"].sum()) * 100
 # CÁLCULOS PRINCIPALES
 # =======================
 arpu = df["Ingresos"].sum() / total_clientes
-churn = 2.3  # % simulado
-mc = 60      # margen contribución % simulado
-cac = 10.5   # CAC simulado
-
+churn = 2.3
+mc = 60
+cac = 10.5
 ltv = (arpu * (mc / 100)) / (churn / 100)
 ltv_cac = ltv / cac
-
 clientes_perdidos = total_clientes * (churn / 100)
 ingresos_perdidos = clientes_perdidos * arpu
 
@@ -181,7 +179,16 @@ with colA:
     font-weight: bold;
     font-size: 13px;
     box-shadow: 0px 3px 8px rgba(0,0,0,0.18);
+    margin-bottom: 16px;
     """
+
+    # Paleta moderna basada en la imagen
+    colors = [
+        ("#6D28D9", "#A78BFA"),  # violeta
+        ("#7C3AED", "#C084FC"),  # púrpura claro
+        ("#5B21B6", "#818CF8"),  # azul-violeta
+        ("#312E81", "#6366F1"),  # azul oscuro a índigo
+    ]
 
     fila1_col1, fila1_col2 = st.columns(2)
     fila2_col1, fila2_col2 = st.columns(2)
@@ -189,7 +196,7 @@ with colA:
     with fila1_col1:
         st.markdown(
             f"""
-            <div style="{card_style.format(color1='#4facfe', color2='#00f2fe')}">
+            <div style="{card_style.format(color1=colors[0][0], color2=colors[0][1])}">
                 <div>ARPU Actual</div>
                 <div style='font-size:24px;margin-top:4px;'>${arpu:,.2f}</div>
                 <div style='font-size:11px;margin-top:2px;'>Objetivo $23</div>
@@ -201,7 +208,7 @@ with colA:
     with fila1_col2:
         st.markdown(
             f"""
-            <div style="{card_style.format(color1='#f7971e', color2='#ffd200')}">
+            <div style="{card_style.format(color1=colors[1][0], color2=colors[1][1])}">
                 <div>CHURN Rate</div>
                 <div style='font-size:24px;margin-top:4px;'>{churn:.2f}%</div>
                 <div style='font-size:11px;margin-top:2px;'>{clientes_perdidos:,.0f} clientes perdidos</div>
@@ -213,7 +220,7 @@ with colA:
     with fila2_col1:
         st.markdown(
             f"""
-            <div style="{card_style.format(color1='#a18cd1', color2='#fbc2eb')}">
+            <div style="{card_style.format(color1=colors[2][0], color2=colors[2][1])}">
                 <div>LTV / CAC</div>
                 <div style='font-size:24px;margin-top:4px;'>{ltv_cac:.2f}x</div>
                 <div style='font-size:11px;margin-top:2px;'>Alarma &lt; 3x</div>
@@ -225,7 +232,7 @@ with colA:
     with fila2_col2:
         st.markdown(
             f"""
-            <div style="{card_style.format(color1='#43cea2', color2='#185a9d')}">
+            <div style="{card_style.format(color1=colors[3][0], color2=colors[3][1])}">
                 <div>Clientes Totales</div>
                 <div style='font-size:24px;margin-top:4px;'>{total_clientes:,}</div>
                 <div style='font-size:11px;margin-top:2px;'>Meta: +500 clientes</div>
@@ -234,25 +241,20 @@ with colA:
             unsafe_allow_html=True,
         )
 
-# --- Columna 2: Clientes perdidos por plan (mismo color, distintos tonos) ---
+# --- Columna 2: Clientes perdidos por plan ---
 with colB:
     st.markdown("#### 📉 Clientes perdidos por plan")
 
     df_perdidos = df.copy()
     df_perdidos["Perdidos"] = df_perdidos["Clientes"] * (churn / 100)
-
-    tonos_azul = ["#1800ad", "#3422c0", "#4f42d1", "#6a61e2", "#857ff2"]
+    tonos_azul = ["#1800ad", "#2A15C0", "#3D2AD4", "#4F3FE7", "#6153FA"]
 
     pie = (
         alt.Chart(df_perdidos)
         .mark_arc(innerRadius=60)
         .encode(
             theta=alt.Theta("Perdidos:Q"),
-            color=alt.Color(
-                "Plan:N",
-                scale=alt.Scale(range=tonos_azul),
-                legend=alt.Legend(title="Plan"),
-            ),
+            color=alt.Color("Plan:N", scale=alt.Scale(range=tonos_azul), legend=None),
             tooltip=[
                 "Plan",
                 alt.Tooltip("Perdidos:Q", format=",.0f", title="Clientes perdidos"),
@@ -260,7 +262,6 @@ with colB:
         )
         .properties(height=300)
     )
-
     st.altair_chart(pie, use_container_width=True)
 
 # --- Columna 3: Placeholder proyecciones ---
@@ -287,9 +288,7 @@ bar2 = (
         color=alt.Color(
             "Plan:N",
             legend=None,
-            scale=alt.Scale(
-                domain=list(color_map.keys()), range=list(color_map.values())
-            ),
+            scale=alt.Scale(domain=list(color_map.keys()), range=list(color_map.values())),
         ),
         tooltip=["Plan", alt.Tooltip("EBITDA:Q", format=",.0f"), "Clientes"],
     )
