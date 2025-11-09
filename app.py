@@ -52,9 +52,94 @@ df["% Clientes"] = (df["Clientes"] / total_clientes) * 100
 df["% Aporte ARPU"] = (df["Ingresos"] / df["Ingresos"].sum()) * 100
 
 # =======================
-# LAYOUT DE GRÁFICOS
+# CÁLCULOS PRINCIPALES
 # =======================
-st.header("📊 Visualizaciones")
+arpu = df["Ingresos"].sum() / total_clientes
+churn = 2.3
+mc = 60
+cac = 10.5
+ltv = (arpu * (mc / 100)) / (churn / 100)
+ltv_cac = ltv / cac
+clientes_perdidos = total_clientes * (churn / 100)
+ingresos_perdidos = clientes_perdidos * arpu
+
+# =======================
+# FILA DE TARJETAS (INDICADORES VISUALES)
+# =======================
+st.markdown("## 💡 Indicadores financieros (vista tarjetas)")
+
+colA, colB, colC, colD = st.columns(4)
+
+# Estilos generales
+card_style = """
+background: linear-gradient(135deg, {color1}, {color2});
+padding: 25px;
+border-radius: 15px;
+text-align: center;
+color: white;
+font-weight: bold;
+box-shadow: 0px 4px 10px rgba(0,0,0,0.2);
+"""
+
+# --- TARJETA 1: ARPU ---
+with colA:
+    st.markdown(
+        f"""
+        <div style="{card_style.format(color1='#4facfe', color2='#00f2fe')}">
+            <h3>ARPU Actual</h3>
+            <h1 style='font-size:48px;'>${arpu:,.2f}</h1>
+            <p>Objetivo: <b>$23</b></p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+# --- TARJETA 2: CHURN RATE ---
+with colB:
+    st.markdown(
+        f"""
+        <div style="{card_style.format(color1='#f7971e', color2='#ffd200')}">
+            <h3>CHURN RATE</h3>
+            <h1 style='font-size:48px;'>{churn:.2f}%</h1>
+            <p>Clientes perdidos: <b>{clientes_perdidos:,.0f}</b><br>
+            Ingresos perdidos: <b>${ingresos_perdidos:,.0f}</b></p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+# --- TARJETA 3: LTV/CAC ---
+alert_color = "#4CAF50" if ltv_cac >= 3 else ("#FFA500" if ltv_cac >= 2 else "#FF3C3C")
+with colC:
+    st.markdown(
+        f"""
+        <div style="{card_style.format(color1='#a18cd1', color2='#fbc2eb')}">
+            <h3>LTV / CAC</h3>
+            <h1 style='font-size:48px; color:{alert_color};'>{ltv_cac:.2f}x</h1>
+            <p>Alarma si &lt; 3x</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+# --- TARJETA 4: CLIENTES TOTALES ---
+with colD:
+    st.markdown(
+        f"""
+        <div style="{card_style.format(color1='#43cea2', color2='#185a9d')}">
+            <h3>Clientes Totales</h3>
+            <h1 style='font-size:48px;'>{total_clientes:,}</h1>
+            <p>Objetivo +500 clientes</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+# =======================
+# GRÁFICOS ORIGINALES
+# =======================
+st.markdown("---")
+st.header("📊 Visualizaciones principales")
 
 left_col, right_col = st.columns([0.6, 0.4])  # 60% / 40%
 
@@ -123,59 +208,10 @@ with right_col:
     st.altair_chart(bars + text, use_container_width=True)
 
 # =======================
-# FILA 2: INDICADORES CLAVE EN GRÁFICOS
-# =======================
-st.header("📈 Indicadores clave (simulados)")
-
-# Datos simulados
-arpu = df["Ingresos"].sum() / total_clientes
-churn = 2.3
-clientes_actuales = total_clientes
-objetivo_arpu = 23
-max_churn = 3
-max_clientes = clientes_actuales + 500
-
-indicadores = pd.DataFrame([
-    {"Indicador": "ARPU (USD)", "Actual": arpu, "Objetivo": objetivo_arpu},
-    {"Indicador": "CHURN (%)", "Actual": churn, "Objetivo": max_churn},
-    {"Indicador": "Clientes", "Actual": clientes_actuales, "Objetivo": max_clientes}
-])
-
-# Crear gráfico de barras horizontales
-st.subheader("📊 Comparativa de indicadores vs objetivos")
-chart_indicadores = (
-    alt.Chart(indicadores)
-    .transform_fold(
-        ["Actual", "Objetivo"],
-        as_=["Tipo", "Valor"]
-    )
-    .mark_bar(size=25)
-    .encode(
-        y=alt.Y("Indicador:N", title=None, sort=["ARPU (USD)", "CHURN (%)", "Clientes"]),
-        x=alt.X("Valor:Q", title="Valor"),
-        color=alt.Color("Tipo:N", scale=alt.Scale(domain=["Actual", "Objetivo"], range=["#00CC83", "#E0E0E0"])),
-        tooltip=["Indicador", "Tipo", alt.Tooltip("Valor:Q", format=".2f")]
-    )
-    .properties(height=180)
-)
-
-# Texto sobre las barras
-text_indicadores = chart_indicadores.mark_text(
-    align="left",
-    baseline="middle",
-    dx=3,
-    color="black"
-).encode(text=alt.Text("Valor:Q", format=".1f"))
-
-st.altair_chart(chart_indicadores + text_indicadores, use_container_width=True)
-
-# =======================
 # EBITDA FINAL
 # =======================
 st.markdown("---")
 st.subheader("💹 EBITDA y Participación por Segmento")
-
-mc = 60
 df["EBITDA"] = df["Ingresos"] * (mc / 100)
 bar2 = (
     alt.Chart(df)
@@ -192,3 +228,4 @@ bar2 = (
 st.altair_chart(bar2, use_container_width=True)
 
 st.markdown("📊 **Dashboard demo listo para presentación (vista Premium).**")
+
