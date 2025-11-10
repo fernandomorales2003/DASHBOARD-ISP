@@ -145,7 +145,6 @@ with right_col:
 st.markdown("---")
 st.header("📈 Indicadores Clave y Clientes Perdidos")
 
-# ---- Tarjetas en dos filas ----
 card_style = """
 background: linear-gradient(135deg, {color1}, {color2});
 padding: 12px;
@@ -213,11 +212,14 @@ with row2[1]:
         unsafe_allow_html=True,
     )
 
-# ---- Gráfico de torta central ----
+# ---- Gráfico de torta central con variaciones de #1800ad ----
 st.subheader("📉 Clientes perdidos por plan")
 df_loss = df.copy()
 df_loss["Perdidos"] = df_loss["Clientes"] * (churn / 100)
-color_scale = alt.Scale(scheme="blues")
+color_scale = alt.Scale(
+    domain=df_loss["Plan"].tolist(),
+    range=["#1800ad", "#2a1bb5", "#4333c0", "#5c4ccb", "#7666d6"]
+)
 torta = (
     alt.Chart(df_loss)
     .mark_arc(innerRadius=50)
