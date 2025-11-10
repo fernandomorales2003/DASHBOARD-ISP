@@ -46,20 +46,30 @@ df = pd.DataFrame([
     {"Plan": "Wireless", "Clientes": clientes_wireless, "Precio": precio_wireless},
     {"Plan": "Corporativo", "Clientes": clientes_corporativo, "Precio": precio_corporativo},
 ])
-
 df["Ingresos"] = df["Clientes"] * df["Precio"]
 df["% Clientes"] = (df["Clientes"] / total_clientes) * 100
 df["% Aporte ARPU"] = (df["Ingresos"] / df["Ingresos"].sum()) * 100
 
 # =======================
-# VISUALIZACIÓN PRINCIPAL
+# CÁLCULOS BASE
+# =======================
+arpu = df["Ingresos"].sum() / total_clientes
+churn = 2.3
+mc = 60
+cac = 10.5
+ltv = (arpu * (mc / 100)) / (churn / 100)
+ltv_cac = ltv / cac
+clientes_perdidos = total_clientes * (churn / 100)
+ingresos_perdidos = clientes_perdidos * arpu
+
+# =======================
+# FILA 1 - VISUALIZACIONES PRINCIPALES
 # =======================
 st.markdown("---")
 st.header("📊 Visualizaciones principales")
 
 left_col, right_col = st.columns([0.6, 0.4])
 
-# ---- 60%: Gráficos circulares más gruesos ----
 with left_col:
     st.subheader("Distribución de clientes por plan (individual)")
     color_map = {
@@ -69,9 +79,9 @@ with left_col:
         "Wireless": "#FFB703",
         "Corporativo": "#FF3C3C",
     }
+
     col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns(5)
     cols = [col_p1, col_p2, col_p3, col_p4, col_p5]
-
     for idx, row in df.iterrows():
         plan = row["Plan"]
         percent = row["% Clientes"]
@@ -87,11 +97,9 @@ with left_col:
             .mark_arc(innerRadius=30, outerRadius=90)
             .encode(
                 theta=alt.Theta("Valor:Q", stack=True),
-                color=alt.Color(
-                    "Etiqueta:N",
+                color=alt.Color("Etiqueta:N",
                     scale=alt.Scale(range=[color, "#E0E0E0"]),
-                    legend=None
-                ),
+                    legend=None),
             )
             .properties(height=180, width=180)
         )
@@ -114,7 +122,6 @@ with left_col:
             st.altair_chart(chart + text, use_container_width=True)
             st.caption(f"{percent:.1f}% del total")
 
-# ---- 40%: Aporte ARPU ----
 with right_col:
     st.subheader("Aporte al ARPU por tipo de cliente")
     bars = (
@@ -123,46 +130,25 @@ with right_col:
         .encode(
             x=alt.X("% Aporte ARPU:Q", title="Aporte al ARPU (%)"),
             y=alt.Y("Plan:N", sort="-x"),
-            color=alt.Color(
-                "Plan:N",
-                legend=None,
-                scale=alt.Scale(domain=list(color_map.keys()), range=list(color_map.values())),
-            ),
-            tooltip=["Plan", alt.Tooltip("% Aporte ARPU:Q", format=".1f"), "Clientes", "Precio"],
+            color=alt.Color("Plan:N", legend=None,
+                scale=alt.Scale(domain=list(color_map.keys()), range=list(color_map.values()))),
+            tooltip=["Plan", alt.Tooltip("% Aporte ARPU:Q", format=".1f"), "Clientes", "Precio"]
         )
         .properties(height=400)
     )
-
-    text = bars.mark_text(
-        align="left",
-        baseline="middle",
-        dx=3,
-        color="white"
-    ).encode(text=alt.Text("% Aporte ARPU:Q", format=".1f"))
-
+    text = bars.mark_text(align="left", baseline="middle", dx=3, color="white").encode(text=alt.Text("% Aporte ARPU:Q", format=".1f"))
     st.altair_chart(bars + text, use_container_width=True)
 
 # =======================
-# KPIs / PROYECCIONES
+# FILA 2 - TARJETAS Y GRÁFICO DE TORTA
 # =======================
 st.markdown("---")
-st.header("Indicadores y Proyecciones")
+st.header("📈 Indicadores Clave y Clientes Perdidos")
 
-# Cálculos base
-churn = 2.3
-mc = 60
-cac = 10.5
-ltv = (df["Ingresos"].sum() / total_clientes) * (mc / 100) / (churn / 100)
-ltv_cac = ltv / cac
-clientes_perdidos = total_clientes * (churn / 100)
-ingresos_perdidos = clientes_perdidos * (df["Ingresos"].sum() / total_clientes)
-
-# Tarjetas de indicadores
-colA, colB, colC, colD = st.columns(4)
-
+# ---- Tarjetas en dos filas ----
 card_style = """
 background: linear-gradient(135deg, {color1}, {color2});
-padding: 14px;
+padding: 12px;
 border-radius: 12px;
 text-align: center;
 color: white;
@@ -179,18 +165,21 @@ colors = [
     ("#312E81", "#6366F1"),
 ]
 
-with colA:
+row1 = st.columns(2)
+row2 = st.columns(2)
+
+with row1[0]:
     st.markdown(
         f"""
         <div style="{card_style.format(color1=colors[0][0], color2=colors[0][1])}">
             <div>ARPU Actual</div>
-            <div style='font-size:24px;margin-top:4px;'>${df["Ingresos"].sum() / total_clientes:,.2f}</div>
+            <div style='font-size:24px;margin-top:4px;'>${arpu:,.2f}</div>
             <div style='font-size:11px;margin-top:2px;'>Objetivo $23</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-with colB:
+with row1[1]:
     st.markdown(
         f"""
         <div style="{card_style.format(color1=colors[1][0], color2=colors[1][1])}">
@@ -201,7 +190,7 @@ with colB:
         """,
         unsafe_allow_html=True,
     )
-with colC:
+with row2[0]:
     st.markdown(
         f"""
         <div style="{card_style.format(color1=colors[2][0], color2=colors[2][1])}">
@@ -212,7 +201,7 @@ with colC:
         """,
         unsafe_allow_html=True,
     )
-with colD:
+with row2[1]:
     st.markdown(
         f"""
         <div style="{card_style.format(color1=colors[3][0], color2=colors[3][1])}">
@@ -223,5 +212,22 @@ with colD:
         """,
         unsafe_allow_html=True,
     )
+
+# ---- Gráfico de torta central ----
+st.subheader("📉 Clientes perdidos por plan")
+df_loss = df.copy()
+df_loss["Perdidos"] = df_loss["Clientes"] * (churn / 100)
+color_scale = alt.Scale(scheme="blues")
+torta = (
+    alt.Chart(df_loss)
+    .mark_arc(innerRadius=50)
+    .encode(
+        theta="Perdidos:Q",
+        color=alt.Color("Plan:N", scale=color_scale, legend=None),
+        tooltip=["Plan", alt.Tooltip("Perdidos:Q", format=",.0f")]
+    )
+    .properties(height=300, width=300)
+)
+st.altair_chart(torta, use_container_width=True)
 
 st.markdown("📊 **Dashboard demo listo para presentación (vista Premium).**")
